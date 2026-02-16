@@ -2,6 +2,8 @@
 
 A command-line interface for the QuickBooks Online API. Query entities, run reports, create invoices — all from your terminal.
 
+Built to give AI agents (like [OpenClaw](https://openclaw.ai)) and automation scripts clean, direct access to QuickBooks — without dealing with unmaintained MCP servers or raw API calls every time. Also works great as a standalone CLI for developers who live in the terminal.
+
 ## Features
 
 - **OAuth 2.0 authentication** with local callback server or manual mode
