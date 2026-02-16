@@ -1,8 +1,8 @@
 # qbo-cli
 
-A command-line interface for the QuickBooks Online API. Query entities, run reports, create invoices — all from your terminal.
+A command-line interface for the QuickBooks Online API. Query entities, run reports, create invoices — all from your terminal. The QuickBooks CLI that developers actually want to use.
 
-Built to give AI agents (like [OpenClaw](https://openclaw.ai)) and automation scripts clean, direct access to QuickBooks — without dealing with unmaintained MCP servers or raw API calls every time. Also works great as a standalone CLI for developers who live in the terminal.
+Built for QuickBooks automation — giving AI agents (like [OpenClaw](https://openclaw.ai)) and scripts clean, direct QBO command line access without dealing with unmaintained MCP servers or raw API calls every time. Also works great as a standalone QuickBooks API Python tool for developers who live in the terminal.
 
 ## Features
 
