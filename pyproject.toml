@@ -1,0 +1,41 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "qbo-cli"
+version = "0.1.0"
+description = "Command-line interface for QuickBooks Online API"
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.9"
+authors = [
+    { name = "Alex Bukhalenkov" },
+]
+keywords = ["quickbooks", "qbo", "cli", "accounting", "intuit"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Financial and Insurance Industry",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Office/Business :: Financial :: Accounting",
+]
+dependencies = [
+    "requests>=2.28",
+]
+
+[project.scripts]
+qbo = "qbo_cli.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/alexph-dev/qbo-cli"
+Repository = "https://github.com/alexph-dev/qbo-cli"
+Issues = "https://github.com/alexph-dev/qbo-cli/issues"
