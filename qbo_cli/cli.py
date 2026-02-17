@@ -24,7 +24,7 @@ from urllib.parse import parse_qs, urlencode, urlparse
 
 import requests
 
-__version__ = "0.5.0"
+__version__ = "0.6.0"
 
 # ─── Constants ───────────────────────────────────────────────────────────────
 
