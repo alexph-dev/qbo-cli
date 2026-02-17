@@ -384,6 +384,419 @@ class QBOClient:
         return self.request(method.upper(), path, json_body=body)
 
 
+# ─── GL Report Engine ────────────────────────────────────────────────────────
+
+class GLSection:
+    """Parsed GL account section with amounts and sub-sections."""
+
+    def __init__(self, name: str, acct_id: str = ""):
+        self.name = name
+        self.id = acct_id
+        self.direct_amount = 0.0
+        self.direct_count = 0
+        self.children: list["GLSection"] = []
+
+    @property
+    def total_amount(self) -> float:
+        return self.direct_amount + sum(c.total_amount for c in self.children)
+
+    @property
+    def total_count(self) -> int:
+        return self.direct_count + sum(c.total_count for c in self.children)
+
+
+def _parse_gl_rows(rows_obj: dict) -> list[GLSection]:
+    """Parse GL Rows object into list of GLSection."""
+    sections = []
+    if not rows_obj or "Row" not in rows_obj:
+        return sections
+
+    for row in rows_obj["Row"]:
+        if row.get("type") != "Section":
+            continue
+
+        header_cols = row.get("Header", {}).get("ColData", [])
+        name = header_cols[0].get("value", "").strip() if header_cols else ""
+        acct_id = header_cols[0].get("id", "") if header_cols else ""
+
+        if not name:
+            placeholder = GLSection("__direct__", acct_id)
+            inner_rows = row.get("Rows", {})
+            if inner_rows and "Row" in inner_rows:
+                for inner_row in inner_rows["Row"]:
+                    if inner_row.get("type") == "Data":
+                        cols = inner_row.get("ColData", [])
+                        if cols and cols[0].get("value", "") == "Beginning Balance":
+                            continue
+                        amt_str = cols[6].get("value", "") if len(cols) > 6 else ""
+                        if amt_str:
+                            try:
+                                placeholder.direct_amount += float(amt_str)
+                                placeholder.direct_count += 1
+                            except ValueError:
+                                pass
+            sections.append(placeholder)
+            continue
+
+        section = GLSection(name, acct_id)
+        inner_rows = row.get("Rows", {})
+
+        if inner_rows and "Row" in inner_rows:
+            for inner_row in inner_rows["Row"]:
+                if inner_row.get("type") == "Data":
+                    cols = inner_row.get("ColData", [])
+                    if cols and cols[0].get("value", "") == "Beginning Balance":
+                        continue
+                    amt_str = cols[6].get("value", "") if len(cols) > 6 else ""
+                    if amt_str:
+                        try:
+                            section.direct_amount += float(amt_str)
+                            section.direct_count += 1
+                        except ValueError:
+                            pass
+
+        section.children = _parse_gl_rows(inner_rows)
+        absorbed = [c for c in section.children if c.name == "__direct__"]
+        for a in absorbed:
+            section.direct_amount += a.direct_amount
+            section.direct_count += a.direct_count
+        section.children = [c for c in section.children if c.name != "__direct__"]
+
+        sections.append(section)
+
+    return sections
+
+
+def _find_gl_section(sections: list[GLSection], name: str) -> GLSection | None:
+    """Find a GL section by name (recursive, suffix-match for numbered accounts)."""
+    for s in sections:
+        if s.name == name or s.name.endswith(f" {name}"):
+            return s
+        found = _find_gl_section(s.children, name)
+        if found:
+            return found
+    return None
+
+
+def _extract_dates_from_gl(gl_data: dict) -> tuple[str | None, str | None]:
+    """Extract earliest and latest transaction dates from raw GL data."""
+    dates = []
+
+    def walk(rows_obj):
+        if not rows_obj or "Row" not in rows_obj:
+            return
+        for row in rows_obj["Row"]:
+            if row.get("type") == "Data":
+                cols = row.get("ColData", [])
+                if cols:
+                    val = cols[0].get("value", "")
+                    if len(val) == 10 and val[4] == "-" and val[7] == "-":
+                        dates.append(val)
+            elif row.get("type") == "Section":
+                walk(row.get("Rows", {}))
+
+    walk(gl_data.get("Rows", {}))
+    if not dates:
+        return None, None
+    dates.sort()
+    return dates[0], dates[-1]
+
+
+def _discover_account_tree(client: "QBOClient", account_ref: str) -> dict:
+    """Build account tree from QBO by fetching sub-accounts under a parent.
+    account_ref can be a numeric ID or account name (fuzzy match).
+    """
+    if account_ref.isdigit():
+        parent_id = account_ref
+        accts = client.query(
+            f"SELECT Id, Name, FullyQualifiedName FROM Account WHERE Id = '{account_ref}'"
+        )
+        parent_name = (accts[0].get("FullyQualifiedName", accts[0].get("Name", f"Account {account_ref}"))
+                       if accts else f"Account {account_ref}")
+    else:
+        accts = client.query(
+            f"SELECT Id, Name, FullyQualifiedName FROM Account WHERE Name LIKE '%{account_ref}%'"
+        )
+        if not accts:
+            die(f"No account found matching '{account_ref}'")
+        match = next((a for a in accts if a["Name"].lower() == account_ref.lower()), accts[0])
+        parent_id = match["Id"]
+        parent_name = match.get("FullyQualifiedName", match["Name"])
+
+    all_accts = client.query(
+        "SELECT Id, Name, FullyQualifiedName, SubAccount, ParentRef FROM Account"
+    )
+
+    def build_children(pid: str) -> list[dict]:
+        kids = []
+        for a in all_accts:
+            pr = a.get("ParentRef", {})
+            if isinstance(pr, dict) and pr.get("value") == pid:
+                kids.append({
+                    "name": a["Name"],
+                    "id": a["Id"],
+                    "children": build_children(a["Id"]),
+                })
+        kids.sort(key=lambda x: x["name"])
+        return kids
+
+    return {
+        "name": parent_name.split(":")[-1].strip(),
+        "id": parent_id,
+        "children": build_children(parent_id),
+    }
+
+
+def _list_all_accounts(client: "QBOClient"):
+    """Print all top-level accounts grouped by type."""
+    all_accts = client.query(
+        "SELECT Id, Name, FullyQualifiedName, AccountType, SubAccount, ParentRef FROM Account"
+    )
+
+    def count_descendants(pid: str) -> int:
+        total = 0
+        for a in all_accts:
+            pr = a.get("ParentRef", {})
+            if isinstance(pr, dict) and pr.get("value") == pid:
+                total += 1 + count_descendants(a["Id"])
+        return total
+
+    top = [a for a in all_accts if not a.get("SubAccount", False)]
+    top.sort(key=lambda a: (a.get("AccountType", ""), a.get("Name", "")))
+
+    current_type = None
+    for a in top:
+        atype = a.get("AccountType", "Other")
+        if atype != current_type:
+            if current_type is not None:
+                print()
+            print(f"── {atype} ──")
+            current_type = atype
+        desc = count_descendants(a["Id"])
+        sub_str = f"  ({desc} sub-accounts)" if desc else ""
+        print(f"  {a['Id']:>15}  {a['Name']}{sub_str}")
+
+    print(f"\n{len(top)} top-level accounts, {len(all_accts)} total")
+
+
+def _print_account_tree(node: dict, indent: int = 0):
+    """Print account tree."""
+    prefix = "  " * indent
+    marker = "└─ " if indent > 0 else ""
+    print(f"{prefix}{marker}{node['name']} (ID: {node['id']})")
+    for child in node["children"]:
+        _print_account_tree(child, indent + 1)
+
+
+def _resolve_customer(client: "QBOClient", name: str) -> tuple[str, str]:
+    """Resolve customer display name to (id, full_name)."""
+    if name.isdigit():
+        data = client.get("Customer", name)
+        cust = data.get("Customer", data)
+        return name, cust.get("FullyQualifiedName", cust.get("DisplayName", name))
+
+    # Exact then fuzzy
+    customers = client.query(
+        f"SELECT Id, DisplayName, FullyQualifiedName FROM Customer WHERE DisplayName = '{name}'"
+    )
+    if not customers:
+        customers = client.query(
+            f"SELECT Id, DisplayName, FullyQualifiedName FROM Customer WHERE DisplayName LIKE '%{name}%'"
+        )
+    if not customers:
+        die(f"No customer found matching '{name}'")
+    if len(customers) > 1:
+        err_print(f"Multiple customers found for '{name}':")
+        for c in customers:
+            err_print(f"  ID={c['Id']}  Name={c.get('FullyQualifiedName', c['DisplayName'])}")
+        err_print("Using first match.")
+    for c in customers:
+        if c.get("DisplayName", "").lower() == name.lower():
+            return c["Id"], c.get("FullyQualifiedName", c["DisplayName"])
+    c = customers[0]
+    return c["Id"], c.get("FullyQualifiedName", c["DisplayName"])
+
+
+REPORT_WIDTH = 72
+
+
+def _format_amount(amount: float, currency: str = "") -> str:
+    prefix = currency or ""
+    if amount < 0:
+        return f"-{prefix}{abs(amount):,.2f}"
+    return f"{prefix}{amount:,.2f}"
+
+
+def _format_date_range(start: str, end: str) -> str:
+    from datetime import datetime as dt
+    s = dt.strptime(start, "%Y-%m-%d")
+    e = dt.strptime(end, "%Y-%m-%d")
+    if s.month == e.month and s.year == e.year:
+        return f"{s.strftime('%B')}, {s.year}"
+    elif s.year == e.year:
+        return f"{s.strftime('%B')}-{e.strftime('%B')}, {s.year}"
+    return f"{s.strftime('%B %Y')}-{e.strftime('%B %Y')}"
+
+
+def _pad_line(label: str, amt_str: str, prefix: str = "") -> str:
+    total_len = len(prefix) + len(label) + len(amt_str)
+    pad = max(1, REPORT_WIDTH - total_len)
+    return f"{prefix}{label}{' ' * pad}{amt_str}"
+
+
+def _compute_subtotal(gl_sections: list[GLSection], node: dict) -> tuple[float, int]:
+    """Compute total for a tree node (own + children, recursively)."""
+    if not node["children"]:
+        section = _find_gl_section(gl_sections, node["name"])
+        if section:
+            return section.total_amount, section.total_count
+        return 0.0, 0
+
+    section = _find_gl_section(gl_sections, node["name"])
+    total_amt = section.direct_amount if section else 0.0
+    total_cnt = section.direct_count if section else 0
+    for child in node["children"]:
+        c_amt, c_cnt = _compute_subtotal(gl_sections, child)
+        total_amt += c_amt
+        total_cnt += c_cnt
+    return total_amt, total_cnt
+
+
+def _build_report_lines(gl_sections: list[GLSection], node: dict,
+                        currency: str, indent: int = 0, lines: list | None = None) -> list[str]:
+    if lines is None:
+        lines = []
+
+    prefix = "  " * indent
+    subtotal_amt, subtotal_cnt = _compute_subtotal(gl_sections, node)
+
+    if not node["children"]:
+        section = _find_gl_section(gl_sections, node["name"])
+        amt = section.total_amount if section else 0.0
+        cnt = section.total_count if section else 0
+        if cnt == 0 and amt == 0.0:
+            return lines
+        lines.append(_pad_line(f"{node['name']} ({cnt})", _format_amount(amt, currency), prefix))
+    else:
+        if subtotal_cnt == 0 and subtotal_amt == 0.0:
+            return lines
+
+        section = _find_gl_section(gl_sections, node["name"])
+        own_cnt = section.direct_count if section else 0
+        own_amt = section.direct_amount if section else 0.0
+        if own_cnt > 0:
+            lines.append(_pad_line(f"{node['name']} ({own_cnt})", _format_amount(own_amt, currency), prefix))
+        else:
+            lines.append(f"{prefix}{node['name']}")
+
+        for child in node["children"]:
+            _build_report_lines(gl_sections, child, currency, indent + 1, lines)
+
+        lines.append(_pad_line(f"Total for {node['name']}", _format_amount(subtotal_amt, currency), prefix))
+
+    return lines
+
+
+def cmd_gl_report(args, config, token_mgr):
+    """Generate a hierarchical General Ledger report."""
+    from datetime import datetime as dt
+
+    client = QBOClient(config, token_mgr)
+
+    # --list-accounts mode
+    if args.list_accounts:
+        if args.account:
+            tree = _discover_account_tree(client, args.account)
+            _print_account_tree(tree)
+        else:
+            _list_all_accounts(client)
+        return
+
+    # Resolve customer
+    if not args.customer:
+        die("Customer is required. Use -c/--customer or --list-accounts to explore.")
+    cust_id, cust_name = _resolve_customer(client, args.customer)
+
+    # Resolve dates
+    end_date = args.end or dt.now().strftime("%Y-%m-%d")
+    start_date = args.start or "2000-01-01"
+    auto_start = args.start is None
+
+    # Resolve account tree
+    if args.account:
+        account_tree = _discover_account_tree(client, args.account)
+    else:
+        die("Account is required. Use -a/--account (ID or name). Use --list-accounts to explore.")
+
+    # Fetch GL
+    params = {
+        "start_date": start_date,
+        "end_date": end_date,
+        "accounting_method": args.method,
+        "customer": cust_id,
+    }
+    gl_data = client.report("GeneralLedger", params)
+
+    # Check for no data
+    for opt in gl_data.get("Header", {}).get("Option", []):
+        if opt.get("Name") == "NoReportData" and opt.get("Value") == "true":
+            die("No data found for the specified filters.")
+
+    gl_sections = _parse_gl_rows(gl_data.get("Rows", {}))
+
+    # Auto-detect start date
+    display_start = start_date
+    if auto_start:
+        actual_first, _ = _extract_dates_from_gl(gl_data)
+        if actual_first:
+            display_start = actual_first
+
+    # Output
+    if args.format == "json" and not args.text:
+        # JSON output: structured data
+        total_amt, total_cnt = _compute_subtotal(gl_sections, account_tree)
+
+        def tree_to_dict(node):
+            section = _find_gl_section(gl_sections, node["name"])
+            result = {"name": node["name"], "id": node["id"]}
+            if not node["children"]:
+                result["amount"] = section.total_amount if section else 0.0
+                result["count"] = section.total_count if section else 0
+            else:
+                result["direct_amount"] = section.direct_amount if section else 0.0
+                result["direct_count"] = section.direct_count if section else 0
+                amt, cnt = _compute_subtotal(gl_sections, node)
+                result["total_amount"] = amt
+                result["total_count"] = cnt
+                result["children"] = [tree_to_dict(c) for c in node["children"]]
+            return result
+
+        output({
+            "customer": cust_name,
+            "customer_id": cust_id,
+            "start_date": display_start,
+            "end_date": end_date,
+            "method": args.method,
+            "account": tree_to_dict(account_tree),
+            "total": total_amt,
+        })
+    else:
+        # Text report
+        date_range = _format_date_range(display_start, end_date)
+        total_amt, _ = _compute_subtotal(gl_sections, account_tree)
+        currency = args.currency
+
+        lines = [
+            f"General Ledger Report - {cust_name}",
+            date_range,
+            "",
+        ]
+        _build_report_lines(gl_sections, account_tree, currency, indent=0, lines=lines)
+        lines.append("")
+        lines.append(_pad_line("TOTAL", _format_amount(total_amt, currency)))
+        print("\n".join(lines))
+
+
 # ─── Auth Commands ───────────────────────────────────────────────────────────
 
 def cmd_auth_init(args, config, token_mgr):
@@ -619,6 +1032,32 @@ def main():
     raw_p.add_argument("method", help="HTTP method (GET, POST, PUT, DELETE)")
     raw_p.add_argument("path", help="API path after /v3/company/{realm}/")
 
+    # ── gl-report ──
+    gl_p = subs.add_parser("gl-report", help="Hierarchical General Ledger report by account & customer",
+                           formatter_class=argparse.RawDescriptionHelpFormatter,
+                           epilog="""examples:
+  %(prog)s -c "John Smith" -a 125                    # report for account 125
+  %(prog)s -c "John Smith" -a "Revenue" --start 2025-01-01
+  %(prog)s -c "John Smith" -a 125 --currency USD     # custom currency prefix
+  %(prog)s --list-accounts                            # list all top-level accounts
+  %(prog)s -a 125 --list-accounts                     # show sub-account tree""")
+    gl_p.add_argument("-c", "--customer", default=None,
+                      help="Customer/owner name or QBO ID")
+    gl_p.add_argument("-a", "--account", default=None,
+                      help="Top-level account ID or name (auto-discovers sub-accounts)")
+    gl_p.add_argument("--start", default=None,
+                      help="Start date YYYY-MM-DD (default: first transaction)")
+    gl_p.add_argument("--end", default=None,
+                      help="End date YYYY-MM-DD (default: today)")
+    gl_p.add_argument("--method", default="Cash", choices=["Cash", "Accrual"],
+                      help="Accounting method (default: Cash)")
+    gl_p.add_argument("--currency", default="",
+                      help="Currency prefix for display (e.g. THB, USD, €)")
+    gl_p.add_argument("--list-accounts", action="store_true",
+                      help="List account hierarchy (or all top-level if -a omitted)")
+    gl_p.add_argument("--text", action="store_true",
+                      help="Human-readable text output (default is JSON)")
+
     args = parser.parse_args()
 
     if not args.command:
@@ -662,6 +1101,9 @@ def main():
     elif args.command == "raw":
         config.validate()
         cmd_raw(args, config, token_mgr)
+    elif args.command == "gl-report":
+        config.validate()
+        cmd_gl_report(args, config, token_mgr)
 
 
 if __name__ == "__main__":
