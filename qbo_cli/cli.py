@@ -51,13 +51,67 @@ def err_print(msg: str):
     print(msg, file=sys.stderr)
 
 
-def output(data, fmt: str = "json"):
+def output(data, fmt: str = "text"):
     """Write result to stdout."""
     if fmt == "tsv":
         output_tsv(data)
+    elif fmt == "text":
+        output_text(data)
     else:
         json.dump(data, sys.stdout, indent=2, default=str)
         print()
+
+
+def output_text(data):
+    """Human-readable table output."""
+    # Normalize to list of dicts
+    if isinstance(data, dict):
+        for v in data.values():
+            if isinstance(v, list):
+                data = v
+                break
+        else:
+            data = [data]
+    if not data:
+        print("(no results)")
+        return
+    if not isinstance(data, list) or not isinstance(data[0], dict):
+        json.dump(data, sys.stdout, indent=2, default=str)
+        print()
+        return
+
+    # Pick columns: skip deeply nested objects, keep scalars
+    all_keys = list(data[0].keys())
+    keys = []
+    for k in all_keys:
+        sample = data[0].get(k)
+        if isinstance(sample, (dict, list)):
+            continue
+        keys.append(k)
+    if not keys:
+        keys = all_keys[:6]
+
+    # Compute column widths
+    col_widths = {}
+    for k in keys:
+        col_widths[k] = max(len(k), max((len(_truncate(str(row.get(k, "")), 40)) for row in data), default=0))
+        col_widths[k] = min(col_widths[k], 40)
+
+    # Header
+    header = "  ".join(k.ljust(col_widths[k]) for k in keys)
+    print(header)
+    print("─" * len(header))
+
+    # Rows
+    for row in data:
+        line = "  ".join(_truncate(str(row.get(k, "")), col_widths[k]).ljust(col_widths[k]) for k in keys)
+        print(line)
+
+    print(f"\n({len(data)} rows)")
+
+
+def _truncate(s: str, maxlen: int) -> str:
+    return s[:maxlen - 1] + "…" if len(s) > maxlen else s
 
 
 def output_tsv(data):
@@ -1121,18 +1175,23 @@ def cmd_auth_setup(args, config, token_mgr):
     print("  qbo auth init --manual")
 
 
+def _resolve_fmt(args) -> str:
+    """Resolve output format: subcommand -o overrides global -f."""
+    return getattr(args, "output", None) or args.format
+
+
 # ─── Entity Commands ─────────────────────────────────────────────────────────
 
 def cmd_query(args, config, token_mgr):
     client = QBOClient(config, token_mgr)
     results = client.query(args.sql, max_pages=args.max_pages)
-    output(results, args.format)
+    output(results, _resolve_fmt(args))
 
 
 def cmd_get(args, config, token_mgr):
     client = QBOClient(config, token_mgr)
     result = client.get(args.entity, args.id)
-    output(result, args.format)
+    output(result, _resolve_fmt(args))
 
 
 def cmd_create(args, config, token_mgr):
@@ -1144,7 +1203,7 @@ def cmd_create(args, config, token_mgr):
         die("Invalid JSON on stdin.")
     client = QBOClient(config, token_mgr)
     result = client.create(args.entity, body)
-    output(result, args.format)
+    output(result, _resolve_fmt(args))
 
 
 def cmd_update(args, config, token_mgr):
@@ -1156,13 +1215,13 @@ def cmd_update(args, config, token_mgr):
         die("Invalid JSON on stdin.")
     client = QBOClient(config, token_mgr)
     result = client.update(args.entity, body)
-    output(result, args.format)
+    output(result, _resolve_fmt(args))
 
 
 def cmd_delete(args, config, token_mgr):
     client = QBOClient(config, token_mgr)
     result = client.delete(args.entity, args.id)
-    output(result, args.format)
+    output(result, _resolve_fmt(args))
 
 
 def cmd_report(args, config, token_mgr):
@@ -1181,7 +1240,7 @@ def cmd_report(args, config, token_mgr):
             k, v = p.split("=", 1)
             params[k] = v
     result = client.report(args.report_type, params or None)
-    output(result, args.format)
+    output(result, _resolve_fmt(args))
 
 
 def cmd_raw(args, config, token_mgr):
@@ -1193,7 +1252,7 @@ def cmd_raw(args, config, token_mgr):
         except json.JSONDecodeError:
             die("Invalid JSON on stdin.")
     result = client.raw(args.method, args.path, body)
-    output(result, args.format)
+    output(result, _resolve_fmt(args))
 
 
 # ─── CLI Parser ──────────────────────────────────────────────────────────────
@@ -1203,8 +1262,8 @@ def main():
         prog="qbo",
         description="QuickBooks Online CLI — query, create, update, delete entities and run reports.",
     )
-    parser.add_argument("--format", "-f", choices=["json", "tsv"], default="json",
-                        help="Output format (default: json)")
+    parser.add_argument("--format", "-f", choices=["text", "json", "tsv"], default="text",
+                        help="Output format (default: text)")
     parser.add_argument("--sandbox", action="store_true",
                         help="Use sandbox API endpoint")
 
@@ -1224,16 +1283,20 @@ def main():
     auth_subs.add_parser("refresh", help="Force token refresh")
     auth_subs.add_parser("setup", help="Interactive config setup (creates ~/.qbo/config.json)")
 
+    _FMT_HELP = "Output format: text (default), json, tsv"
+
     # ── query ──
     query_p = subs.add_parser("query", help="Run a QBO query (SQL-like)")
     query_p.add_argument("sql", help='QBO query, e.g. "SELECT * FROM Customer"')
     query_p.add_argument("--max-pages", type=int, default=DEFAULT_MAX_PAGES,
                          help=f"Max pagination pages (default: {DEFAULT_MAX_PAGES})")
+    query_p.add_argument("-o", "--output", choices=["text", "json", "tsv"], default=None, help=_FMT_HELP)
 
     # ── get ──
     get_p = subs.add_parser("get", help="Get a single entity by ID")
     get_p.add_argument("entity", help="Entity type (Invoice, Customer, etc.)")
     get_p.add_argument("id", help="Entity ID")
+    get_p.add_argument("-o", "--output", choices=["text", "json", "tsv"], default=None, help=_FMT_HELP)
 
     # ── create ──
     create_p = subs.add_parser("create", help="Create an entity (JSON on stdin)")
@@ -1255,11 +1318,13 @@ def main():
     report_p.add_argument("--end-date", help="End date (YYYY-MM-DD)")
     report_p.add_argument("--date-macro", help='Date macro (e.g. "Last Month", "This Year")')
     report_p.add_argument("params", nargs="*", help="Extra params as key=value")
+    report_p.add_argument("-o", "--output", choices=["text", "json", "tsv"], default=None, help=_FMT_HELP)
 
     # ── raw ──
     raw_p = subs.add_parser("raw", help="Make a raw API request")
     raw_p.add_argument("method", help="HTTP method (GET, POST, PUT, DELETE)")
     raw_p.add_argument("path", help="API path after /v3/company/{realm}/")
+    raw_p.add_argument("-o", "--output", choices=["text", "json", "tsv"], default=None, help=_FMT_HELP)
 
     # ── gl-report ──
     gl_p = subs.add_parser("gl-report", help="Hierarchical General Ledger report by account & customer",
