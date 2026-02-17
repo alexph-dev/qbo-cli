@@ -791,6 +791,45 @@ def _collapse_tree(node: dict) -> dict:
     return {"name": node["name"], "id": node["id"], "children": []}
 
 
+def _build_by_customer_report(gl_sections: list[GLSection], node: dict,
+                              currency: str) -> list[str]:
+    """Group all transactions by customer and show per-customer subtotals."""
+    section = _find_gl_section(gl_sections, node["name"])
+    if not section:
+        return ["(no transactions)"]
+
+    txns = section.all_transactions
+    if not txns:
+        return ["(no transactions)"]
+
+    # Group by customer
+    from collections import defaultdict
+    groups: dict[str, list[GLTransaction]] = defaultdict(list)
+    for t in txns:
+        cust = t.customer or "(no customer)"
+        groups[cust].append(t)
+
+    # Sort customers by absolute total descending
+    sorted_custs = sorted(groups.keys(),
+                          key=lambda c: abs(sum(t.amount for t in groups[c])),
+                          reverse=True)
+
+    lines = []
+    lines.append(node["name"])
+    lines.append("")
+
+    for cust in sorted_custs:
+        ctxns = groups[cust]
+        total = sum(t.amount for t in ctxns)
+        lines.append(_pad_line(f"{cust} ({len(ctxns)})", _format_amount(total, currency)))
+
+    lines.append("")
+    grand_total = sum(t.amount for t in txns)
+    lines.append(_pad_line(f"TOTAL ({len(txns)})", _format_amount(grand_total, currency)))
+
+    return lines
+
+
 def cmd_gl_report(args, config, token_mgr):
     """Generate a hierarchical General Ledger report."""
     from datetime import datetime as dt
@@ -907,6 +946,11 @@ def cmd_gl_report(args, config, token_mgr):
     elif out_mode == "txns":
         lines = [title, date_range, ""]
         lines.extend(_build_txns_report(gl_sections, account_tree, currency))
+        print("\n".join(lines))
+
+    elif args.by_customer:
+        lines = [title, date_range, ""]
+        lines.extend(_build_by_customer_report(gl_sections, account_tree, currency))
         print("\n".join(lines))
 
     else:
@@ -1245,6 +1289,8 @@ def main():
                       help="Output format: text (default), json, txns (flat transaction list), expanded (tree + transactions)")
     gl_p.add_argument("--no-sub", action="store_true",
                       help="Don't break down into sub-accounts (roll up into parent)")
+    gl_p.add_argument("-g", "--by-customer", action="store_true",
+                      help="Group by customer (shows per-customer subtotals)")
 
     args = parser.parse_args()
 
