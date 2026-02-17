@@ -36,7 +36,15 @@ Add a **Redirect URI** in your app's settings. For production apps, Intuit requi
 
 ### 2. Configure Credentials
 
-**Option A: Environment variables** (recommended for CI/scripts)
+**Quickest: Interactive setup**
+
+```bash
+qbo auth setup
+```
+
+This prompts for your Client ID, Client Secret, and Redirect URI, then saves to `~/.qbo/config.json`.
+
+**Option A: Environment variables** (for CI/scripts)
 
 ```bash
 export QBO_CLIENT_ID="your-client-id"
@@ -167,6 +175,30 @@ qbo raw GET "query?query=SELECT * FROM CompanyInfo"
 
 # POST with body
 echo '{"TrackQtyOnHand": true}' | qbo raw POST "item"
+```
+
+### General Ledger reports (`gl-report`)
+
+Hierarchical GL reports for any account and customer, with auto-discovered sub-account trees.
+
+```bash
+# Explore your chart of accounts
+qbo gl-report --list-accounts
+
+# Drill into a specific account's sub-accounts
+qbo gl-report -a 125 --list-accounts
+
+# Generate a report (JSON by default)
+qbo gl-report -c "John Smith" -a 125
+
+# Human-readable text with currency prefix
+qbo gl-report -c "John Smith" -a 125 --text --currency USD
+
+# Custom date range
+qbo gl-report -c "John Smith" -a "Revenue" --start 2025-01-01 --end 2025-12-31
+
+# Dates default to: first transaction → today
+qbo gl-report -c "John Smith" -a 125 --text
 ```
 
 ### Output formats

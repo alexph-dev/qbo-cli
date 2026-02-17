@@ -114,8 +114,12 @@ class Config:
         """Raise if missing required config."""
         if not self.client_id or not self.client_secret:
             die(
-                "Missing QBO_CLIENT_ID / QBO_CLIENT_SECRET.\n"
-                "Set env vars or create ~/.qbo/config.json with client_id and client_secret."
+                "Missing QBO credentials. Run setup first:\n"
+                "  qbo auth setup\n\n"
+                "Or set environment variables:\n"
+                "  export QBO_CLIENT_ID='your-client-id'\n"
+                "  export QBO_CLIENT_SECRET='your-client-secret'\n\n"
+                "Or create ~/.qbo/config.json (see config.json.example in repo)."
             )
 
 
@@ -893,6 +897,68 @@ def cmd_auth_refresh(args, config, token_mgr):
     err_print("✓ Token refreshed successfully")
 
 
+def cmd_auth_setup(args, config, token_mgr):
+    """Interactive config setup — creates ~/.qbo/config.json."""
+    print("QuickBooks Online CLI — Setup")
+    print("=" * 40)
+    print()
+    print("You need a QuickBooks app from https://developer.intuit.com")
+    print("Go to: Dashboard → Create an app → Get your Client ID & Secret")
+    print()
+
+    # Load existing values as defaults
+    existing = {}
+    if CONFIG_PATH.exists():
+        try:
+            existing = json.loads(CONFIG_PATH.read_text())
+        except json.JSONDecodeError:
+            pass
+
+    def prompt(label: str, key: str, default: str = "", secret: bool = False) -> str:
+        current = existing.get(key, default)
+        if current and secret:
+            display = current[:4] + "..." + current[-4:] if len(current) > 12 else "***"
+            hint = f" [{display}]"
+        elif current:
+            hint = f" [{current}]"
+        else:
+            hint = ""
+        val = input(f"{label}{hint}: ").strip()
+        return val if val else current
+
+    client_id = prompt("Client ID", "client_id")
+    client_secret = prompt("Client Secret", "client_secret", secret=True)
+    redirect_uri = prompt("Redirect URI", "redirect_uri", DEFAULT_REDIRECT)
+
+    if not client_id or not client_secret:
+        die("Client ID and Client Secret are required.")
+
+    cfg = {
+        "client_id": client_id,
+        "client_secret": client_secret,
+        "redirect_uri": redirect_uri,
+    }
+
+    # Preserve existing realm_id / sandbox if present
+    if existing.get("realm_id"):
+        cfg["realm_id"] = existing["realm_id"]
+    if existing.get("sandbox"):
+        cfg["sandbox"] = existing["sandbox"]
+
+    QBO_DIR.mkdir(parents=True, exist_ok=True)
+    CONFIG_PATH.write_text(json.dumps(cfg, indent=2) + "\n")
+    os.chmod(CONFIG_PATH, 0o600)
+
+    print()
+    print(f"✓ Config saved to {CONFIG_PATH}")
+    print()
+    print("Next step — authorize with QuickBooks:")
+    print("  qbo auth init")
+    print()
+    print("On a headless server (no browser):")
+    print("  qbo auth init --manual")
+
+
 # ─── Entity Commands ─────────────────────────────────────────────────────────
 
 def cmd_query(args, config, token_mgr):
@@ -994,6 +1060,7 @@ def main():
 
     auth_subs.add_parser("status", help="Show token status")
     auth_subs.add_parser("refresh", help="Force token refresh")
+    auth_subs.add_parser("setup", help="Interactive config setup (creates ~/.qbo/config.json)")
 
     # ── query ──
     query_p = subs.add_parser("query", help="Run a QBO query (SQL-like)")
@@ -1078,6 +1145,7 @@ def main():
             "init": cmd_auth_init,
             "status": cmd_auth_status,
             "refresh": cmd_auth_refresh,
+            "setup": cmd_auth_setup,
         }
         dispatch[args.auth_command](args, config, token_mgr)
     elif args.command == "query":
