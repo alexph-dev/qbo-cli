@@ -26,7 +26,7 @@ from urllib.parse import parse_qs, urlencode, urlparse
 
 import requests
 
-__version__ = "0.6.0"
+from qbo_cli import __version__
 
 # ─── Constants ───────────────────────────────────────────────────────────────
 
@@ -51,8 +51,9 @@ REFRESH_EXPIRY_WARN_DAYS = 14  # warn when refresh token < this many days left
 
 def _qbo_escape(value: str) -> str:
     """Escape a value for use in QBO query strings.
-    QBO uses single-quoted strings; escape single quotes by doubling them."""
-    return value.replace("'", "''")
+    Doubles single quotes for string literals; strips % to prevent
+    unintended LIKE wildcard expansion."""
+    return value.replace("'", "''").replace("%", "")
 
 
 def die(msg: str, code: int = 1):
@@ -294,6 +295,7 @@ class TokenManager:
         QBO_DIR.mkdir(parents=True, exist_ok=True)
 
         with open(lock_path, "w") as lock_file:
+            os.chmod(lock_path, 0o600)
             fcntl.flock(lock_file, fcntl.LOCK_EX)
             try:
                 # Re-read — another process may have refreshed
@@ -641,14 +643,22 @@ def _parse_gl_rows(rows_obj: dict) -> list[GLSection]:
     return sections
 
 
-def _find_gl_section(sections: list[GLSection], name: str) -> GLSection | None:
-    """Find a GL section by name (recursive, suffix-match for numbered accounts)."""
+def _build_section_index(sections: list[GLSection]) -> dict[str, GLSection]:
+    """Build flat name→section dict for O(1) lookups."""
+    index = {}
     for s in sections:
-        if s.name == name or s.name.endswith(f" {name}"):
-            return s
-        found = _find_gl_section(s.children, name)
-        if found:
-            return found
+        index[s.name] = s
+        index.update(_build_section_index(s.children))
+    return index
+
+
+def _find_gl_section(section_idx: dict[str, GLSection], name: str) -> GLSection | None:
+    """Find a GL section by name (exact, then suffix-match for numbered accounts)."""
+    if name in section_idx:
+        return section_idx[name]
+    for key in section_idx:
+        if key.endswith(f" {name}"):
+            return section_idx[key]
     return None
 
 
@@ -700,18 +710,16 @@ def _discover_account_tree(client: "QBOClient", account_ref: str) -> dict:
 
     all_accts = client.query("SELECT Id, Name, FullyQualifiedName, SubAccount, ParentRef FROM Account")
 
+    children_by_parent = defaultdict(list)
+    for a in all_accts:
+        pr = a.get("ParentRef", {})
+        if isinstance(pr, dict) and pr.get("value"):
+            children_by_parent[pr["value"]].append(a)
+
     def build_children(pid: str) -> list[dict]:
-        kids = []
-        for a in all_accts:
-            pr = a.get("ParentRef", {})
-            if isinstance(pr, dict) and pr.get("value") == pid:
-                kids.append(
-                    {
-                        "name": a["Name"],
-                        "id": a["Id"],
-                        "children": build_children(a["Id"]),
-                    }
-                )
+        kids = [
+            {"name": a["Name"], "id": a["Id"], "children": build_children(a["Id"])} for a in children_by_parent[pid]
+        ]
         kids.sort(key=lambda x: x["name"])
         return kids
 
@@ -726,13 +734,14 @@ def _list_all_accounts(client: "QBOClient"):
     """Print all top-level accounts grouped by type."""
     all_accts = client.query("SELECT Id, Name, FullyQualifiedName, AccountType, SubAccount, ParentRef FROM Account")
 
+    children_by_parent = defaultdict(list)
+    for a in all_accts:
+        pr = a.get("ParentRef", {})
+        if isinstance(pr, dict) and pr.get("value"):
+            children_by_parent[pr["value"]].append(a)
+
     def count_descendants(pid: str) -> int:
-        total = 0
-        for a in all_accts:
-            pr = a.get("ParentRef", {})
-            if isinstance(pr, dict) and pr.get("value") == pid:
-                total += 1 + count_descendants(a["Id"])
-        return total
+        return sum(1 + count_descendants(a["Id"]) for a in children_by_parent[pid])
 
     top = [a for a in all_accts if not a.get("SubAccount", False)]
     top.sort(key=lambda a: (a.get("AccountType", ""), a.get("Name", "")))
@@ -842,26 +851,26 @@ def _pad_line(label: str, amt_str: str, prefix: str = "") -> str:
     return f"{prefix}{label}{' ' * pad}{amt_str}"
 
 
-def _compute_subtotal(gl_sections: list[GLSection], node: dict) -> tuple[float, int]:
+def _compute_subtotal(section_idx: dict[str, GLSection], node: dict) -> tuple[float, int]:
     """Compute total for a tree node (own + children, recursively)."""
     if not node["children"]:
-        section = _find_gl_section(gl_sections, node["name"])
+        section = _find_gl_section(section_idx, node["name"])
         if section:
             return section.total_amount, section.total_count
         return 0.0, 0
 
-    section = _find_gl_section(gl_sections, node["name"])
+    section = _find_gl_section(section_idx, node["name"])
     total_amt = section.direct_amount if section else 0.0
     total_cnt = section.direct_count if section else 0
     for child in node["children"]:
-        c_amt, c_cnt = _compute_subtotal(gl_sections, child)
+        c_amt, c_cnt = _compute_subtotal(section_idx, child)
         total_amt += c_amt
         total_cnt += c_cnt
     return total_amt, total_cnt
 
 
 def _build_report_lines(
-    gl_sections: list[GLSection],
+    section_idx: dict[str, GLSection],
     node: dict,
     currency: str,
     indent: int = 0,
@@ -872,10 +881,10 @@ def _build_report_lines(
         lines = []
 
     prefix = "  " * indent
-    subtotal_amt, subtotal_cnt = _compute_subtotal(gl_sections, node)
+    subtotal_amt, subtotal_cnt = _compute_subtotal(section_idx, node)
 
     if not node["children"]:
-        section = _find_gl_section(gl_sections, node["name"])
+        section = _find_gl_section(section_idx, node["name"])
         amt = section.total_amount if section else 0.0
         cnt = section.total_count if section else 0
         if cnt == 0 and amt == 0.0:
@@ -887,7 +896,7 @@ def _build_report_lines(
         if subtotal_cnt == 0 and subtotal_amt == 0.0:
             return lines
 
-        section = _find_gl_section(gl_sections, node["name"])
+        section = _find_gl_section(section_idx, node["name"])
         own_cnt = section.direct_count if section else 0
         own_amt = section.direct_amount if section else 0.0
         if own_cnt > 0:
@@ -898,7 +907,7 @@ def _build_report_lines(
             lines.append(f"{prefix}{node['name']}")
 
         for child in node["children"]:
-            _build_report_lines(gl_sections, child, currency, indent + 1, lines, expanded=expanded)
+            _build_report_lines(section_idx, child, currency, indent + 1, lines, expanded=expanded)
 
         lines.append(_pad_line(f"Total for {node['name']}", _format_amount(subtotal_amt, currency), prefix))
 
@@ -914,9 +923,9 @@ def _append_txn_lines(txns: list[GLTransaction], currency: str, indent: int, lin
         lines.append(_pad_line(label, _format_amount(t.amount, currency), prefix))
 
 
-def _build_txns_report(gl_sections: list[GLSection], node: dict, currency: str) -> list[str]:
+def _build_txns_report(section_idx: dict[str, GLSection], node: dict, currency: str) -> list[str]:
     """Flat list of all transactions sorted by date."""
-    section = _find_gl_section(gl_sections, node["name"])
+    section = _find_gl_section(section_idx, node["name"])
     if not section:
         return ["(no transactions)"]
 
@@ -952,7 +961,7 @@ def _collapse_tree(node: dict) -> dict:
 
 
 def _build_by_customer_report(
-    gl_sections: list[GLSection], node: dict, currency: str, customer_filter: str = "", sort_by: str = "alpha"
+    section_idx: dict[str, GLSection], node: dict, currency: str, customer_filter: str = "", sort_by: str = "alpha"
 ) -> list[str]:
     """Group all transactions by customer and show per-customer subtotals.
 
@@ -961,7 +970,7 @@ def _build_by_customer_report(
     sort_by: "alpha" (alphabetical) or "amount" (absolute total descending)
     """
 
-    section = _find_gl_section(gl_sections, node["name"])
+    section = _find_gl_section(section_idx, node["name"])
     if not section:
         return ["(no transactions)"]
 
@@ -1070,6 +1079,7 @@ def cmd_gl_report(args, config, token_mgr):
             die("No data found for the specified filters.")
 
     gl_sections = _parse_gl_rows(gl_data.get("Rows", {}))
+    section_idx = _build_section_index(gl_sections)
 
     # Collapse tree if --no-sub
     if args.no_sub:
@@ -1087,12 +1097,12 @@ def cmd_gl_report(args, config, token_mgr):
     title = f"General Ledger Report - {cust_name}" if cust_name else "General Ledger Report"
     date_range = _format_date_range(display_start, end_date)
     currency = args.currency
-    total_amt, _ = _compute_subtotal(gl_sections, account_tree)
+    total_amt, _ = _compute_subtotal(section_idx, account_tree)
 
     if out_mode == "json":
 
         def tree_to_dict(node):
-            section = _find_gl_section(gl_sections, node["name"])
+            section = _find_gl_section(section_idx, node["name"])
             result = {"name": node["name"], "id": node["id"]}
             if not node["children"]:
                 result["amount"] = section.total_amount if section else 0.0
@@ -1115,7 +1125,7 @@ def cmd_gl_report(args, config, token_mgr):
             else:
                 result["direct_amount"] = section.direct_amount if section else 0.0
                 result["direct_count"] = section.direct_count if section else 0
-                amt, cnt = _compute_subtotal(gl_sections, node)
+                amt, cnt = _compute_subtotal(section_idx, node)
                 result["total_amount"] = amt
                 result["total_count"] = cnt
                 result["children"] = [tree_to_dict(c) for c in node["children"]]
@@ -1150,14 +1160,14 @@ def cmd_gl_report(args, config, token_mgr):
 
     elif out_mode == "txns":
         lines = [title, date_range, ""]
-        lines.extend(_build_txns_report(gl_sections, account_tree, currency))
+        lines.extend(_build_txns_report(section_idx, account_tree, currency))
         print("\n".join(lines))
 
     elif args.by_customer:
         lines = [title, date_range, ""]
         lines.extend(
             _build_by_customer_report(
-                gl_sections,
+                section_idx,
                 account_tree,
                 currency,
                 customer_filter=cust_name or "",
@@ -1170,7 +1180,7 @@ def cmd_gl_report(args, config, token_mgr):
         # text or expanded
         expanded = out_mode == "expanded"
         lines = [title, date_range, ""]
-        _build_report_lines(gl_sections, account_tree, currency, indent=0, lines=lines, expanded=expanded)
+        _build_report_lines(section_idx, account_tree, currency, indent=0, lines=lines, expanded=expanded)
         lines.append("")
         lines.append(_pad_line("TOTAL", _format_amount(total_amt, currency)))
         print("\n".join(lines))
@@ -1183,13 +1193,14 @@ def cmd_auth_init(args, config, token_mgr):
     """Interactive OAuth authorization flow."""
     config.validate(need_tokens=False)
 
+    oauth_state = os.urandom(16).hex()
     auth_params = urlencode(
         {
             "client_id": config.client_id,
             "scope": SCOPE,
             "redirect_uri": config.redirect_uri,
             "response_type": "code",
-            "state": os.urandom(16).hex(),
+            "state": oauth_state,
         }
     )
     auth_url = f"{AUTH_URL}?{auth_params}"
@@ -1204,8 +1215,10 @@ def cmd_auth_init(args, config, token_mgr):
             realm_id = parsed["realmId"][0]
         except (KeyError, IndexError):
             die("Could not parse code and realmId from the redirect URL.")
+        if parsed.get("state", [None])[0] != oauth_state:
+            die("OAuth state mismatch — possible CSRF. Try again.")
     else:
-        code, realm_id = _run_callback_server(auth_url, config, args.port)
+        code, realm_id = _run_callback_server(auth_url, config, args.port, oauth_state)
 
     tokens = token_mgr.exchange_code(code, realm_id)
     err_print(f"✓ Authorized. Realm: {realm_id}")
@@ -1213,13 +1226,18 @@ def cmd_auth_init(args, config, token_mgr):
     err_print(f"  Refresh token expires: {time.ctime(tokens['refresh_expires_at'])}")
 
 
-def _run_callback_server(auth_url: str, config: Config, port: int) -> tuple:
+def _run_callback_server(auth_url: str, config: Config, port: int, expected_state: str) -> tuple:
     """Start temp HTTP server, print auth URL, wait for callback."""
     result = {}
 
     class Handler(BaseHTTPRequestHandler):
         def do_GET(self):
             qs = parse_qs(urlparse(self.path).query)
+            if qs.get("state", [None])[0] != expected_state:
+                self.send_response(400)
+                self.end_headers()
+                self.wfile.write(b"State mismatch - possible CSRF. Try again.")
+                return
             if "code" in qs:
                 result["code"] = qs["code"][0]
                 result["realm_id"] = qs["realmId"][0]
