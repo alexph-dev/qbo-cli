@@ -9,6 +9,8 @@ Homepage: https://github.com/alexph-dev/qbo-cli
 License: MIT
 """
 
+from __future__ import annotations
+
 import argparse
 import fcntl
 import json
