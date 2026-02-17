@@ -64,14 +64,27 @@ def output(data, fmt: str = "text"):
 
 def output_text(data):
     """Human-readable table output."""
-    # Normalize to list of dicts
+    # Unwrap QBO entity response like {"Customer": {...}}
     if isinstance(data, dict):
+        # Single entity response — check for entity wrapper
+        keys = list(data.keys())
+        if len(keys) == 1 and isinstance(data[keys[0]], dict):
+            data = data[keys[0]]
+
+        # If still a single dict (not a list), show as key-value pairs
+        if isinstance(data, dict) and not any(isinstance(v, list) for v in data.values() if isinstance(v, list) and v and isinstance(v[0], dict)):
+            _output_kv(data)
+            return
+
+        # Try to extract a list from the dict
         for v in data.values():
             if isinstance(v, list):
                 data = v
                 break
         else:
-            data = [data]
+            _output_kv(data)
+            return
+
     if not data:
         print("(no results)")
         return
@@ -108,6 +121,36 @@ def output_text(data):
         print(line)
 
     print(f"\n({len(data)} rows)")
+
+
+def _output_kv(data: dict, indent: int = 0):
+    """Pretty-print a single entity as key-value pairs."""
+    prefix = "  " * indent
+    # Find max key length for alignment
+    scalar_keys = [k for k, v in data.items() if not isinstance(v, (dict, list))]
+    nested_keys = [k for k, v in data.items() if isinstance(v, (dict, list))]
+    max_key = max((len(k) for k in scalar_keys), default=10)
+
+    for k in scalar_keys:
+        v = data[k]
+        print(f"{prefix}{k:<{max_key}}  {v}")
+
+    for k in nested_keys:
+        v = data[k]
+        if isinstance(v, dict):
+            # Flatten simple nested dicts inline
+            simple_vals = {sk: sv for sk, sv in v.items() if not isinstance(sv, (dict, list))}
+            if simple_vals and len(simple_vals) <= 3:
+                flat = ", ".join(f"{sk}={sv}" for sk, sv in simple_vals.items())
+                print(f"{prefix}{k:<{max_key}}  {flat}")
+            elif simple_vals:
+                print(f"{prefix}{k}:")
+                _output_kv(v, indent + 1)
+        elif isinstance(v, list) and v:
+            if isinstance(v[0], dict):
+                print(f"{prefix}{k}: ({len(v)} items)")
+            else:
+                print(f"{prefix}{k:<{max_key}}  {v}")
 
 
 def _truncate(s: str, maxlen: int) -> str:
@@ -420,18 +463,18 @@ class QBOClient:
         return all_results
 
     def get(self, entity: str, entity_id: str) -> dict:
-        return self.request("GET", f"{entity}/{entity_id}")
+        return self.request("GET", f"{entity.lower()}/{entity_id}")
 
     def create(self, entity: str, body: dict) -> dict:
-        return self.request("POST", entity, json_body=body)
+        return self.request("POST", entity.lower(), json_body=body)
 
     def update(self, entity: str, body: dict) -> dict:
-        return self.request("POST", entity, json_body=body)
+        return self.request("POST", entity.lower(), json_body=body)
 
     def delete(self, entity: str, entity_id: str) -> dict:
         current = self.get(entity, entity_id)
         entity_data = current.get(entity, current)
-        return self.request("POST", entity,
+        return self.request("POST", entity.lower(),
                             params={"operation": "delete"},
                             json_body=entity_data)
 
