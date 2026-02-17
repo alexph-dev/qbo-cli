@@ -757,7 +757,7 @@ def cmd_gl_report(args, config, token_mgr):
             display_start = actual_first
 
     # Output
-    if args.format == "json" and not args.text:
+    if args.json:
         # JSON output: structured data
         total_amt, total_cnt = _compute_subtotal(gl_sections, account_tree)
 
@@ -1127,8 +1127,8 @@ def main():
                       help="Currency prefix for display (e.g. THB, USD, €)")
     gl_p.add_argument("--list-accounts", action="store_true",
                       help="List account hierarchy (or all top-level if -a omitted)")
-    gl_p.add_argument("--text", action="store_true",
-                      help="Human-readable text output (default is JSON)")
+    gl_p.add_argument("--json", action="store_true",
+                      help="Output as JSON (default is human-readable text)")
 
     args = parser.parse_args()
 
