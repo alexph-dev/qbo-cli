@@ -18,9 +18,9 @@ import sys
 import time
 from collections import defaultdict
 from datetime import datetime
-from http.server import HTTPServer, BaseHTTPRequestHandler
+from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
-from urllib.parse import urlencode, urlparse, parse_qs
+from urllib.parse import parse_qs, urlencode, urlparse
 
 import requests
 
@@ -37,14 +37,15 @@ PROD_BASE = "https://quickbooks.api.intuit.com/v3/company"
 SANDBOX_BASE = "https://sandbox-quickbooks.api.intuit.com/v3/company"
 SCOPE = "com.intuit.quickbooks.accounting"
 DEFAULT_REDIRECT = "http://localhost:8844/callback"
-REFRESH_MARGIN_SEC = 300   # 5 minutes
-MAX_RESULTS = 1000         # QBO max per page
-DEFAULT_MAX_PAGES = 100    # safety cap
-MINOR_VERSION = 75         # QBO API minor version
+REFRESH_MARGIN_SEC = 300  # 5 minutes
+MAX_RESULTS = 1000  # QBO max per page
+DEFAULT_MAX_PAGES = 100  # safety cap
+MINOR_VERSION = 75  # QBO API minor version
 REFRESH_EXPIRY_WARN_DAYS = 14  # warn when refresh token < this many days left
 
 
 # ─── Helpers ─────────────────────────────────────────────────────────────────
+
 
 def _qbo_escape(value: str) -> str:
     """Escape a value for use in QBO query strings.
@@ -83,7 +84,9 @@ def output_text(data):
             data = data[keys[0]]
 
         # If still a single dict (not a list), show as key-value pairs
-        if isinstance(data, dict) and not any(isinstance(v, list) for v in data.values() if isinstance(v, list) and v and isinstance(v[0], dict)):
+        if isinstance(data, dict) and not any(
+            isinstance(v, list) for v in data.values() if isinstance(v, list) and v and isinstance(v[0], dict)
+        ):
             _output_kv(data)
             return
 
@@ -165,7 +168,7 @@ def _output_kv(data: dict, indent: int = 0):
 
 
 def _truncate(s: str, maxlen: int) -> str:
-    return s[:maxlen - 1] + "…" if len(s) > maxlen else s
+    return s[: maxlen - 1] + "…" if len(s) > maxlen else s
 
 
 def output_tsv(data):
@@ -190,6 +193,7 @@ def output_tsv(data):
 
 
 # ─── Config ──────────────────────────────────────────────────────────────────
+
 
 class Config:
     """Load config from env vars → config file → defaults."""
@@ -232,6 +236,7 @@ class Config:
 
 
 # ─── Token Manager ───────────────────────────────────────────────────────────
+
 
 class TokenManager:
     """Thread-safe, file-locked token storage with auto-refresh."""
@@ -303,10 +308,15 @@ class TokenManager:
     def _do_refresh(self, tokens: dict) -> dict:
         """Call Intuit token endpoint to refresh."""
         try:
-            resp = requests.post(TOKEN_URL, data={
-                "grant_type": "refresh_token",
-                "refresh_token": tokens["refresh_token"],
-            }, auth=(self.config.client_id, self.config.client_secret), timeout=30)
+            resp = requests.post(
+                TOKEN_URL,
+                data={
+                    "grant_type": "refresh_token",
+                    "refresh_token": tokens["refresh_token"],
+                },
+                auth=(self.config.client_id, self.config.client_secret),
+                timeout=30,
+            )
         except requests.ConnectionError:
             die("Network error during token refresh. Check your connection.")
         except requests.Timeout:
@@ -344,11 +354,16 @@ class TokenManager:
     def exchange_code(self, auth_code: str, realm_id: str) -> dict:
         """Exchange authorization code for tokens."""
         try:
-            resp = requests.post(TOKEN_URL, data={
-                "grant_type": "authorization_code",
-                "code": auth_code,
-                "redirect_uri": self.config.redirect_uri,
-            }, auth=(self.config.client_id, self.config.client_secret), timeout=30)
+            resp = requests.post(
+                TOKEN_URL,
+                data={
+                    "grant_type": "authorization_code",
+                    "code": auth_code,
+                    "redirect_uri": self.config.redirect_uri,
+                },
+                auth=(self.config.client_id, self.config.client_secret),
+                timeout=30,
+            )
         except requests.ConnectionError:
             die("Network error during code exchange. Check your connection.")
         except requests.Timeout:
@@ -375,6 +390,7 @@ class TokenManager:
 
 # ─── QBO Client ──────────────────────────────────────────────────────────────
 
+
 class QBOClient:
     """QuickBooks Online API client with auto-refresh and retry."""
 
@@ -397,8 +413,7 @@ class QBOClient:
         base = SANDBOX_BASE if self.config.sandbox else PROD_BASE
         return f"{base}/{realm}"
 
-    def request(self, method: str, path: str, params: dict = None,
-                json_body: dict = None, raw_response: bool = False):
+    def request(self, method: str, path: str, params: dict = None, json_body: dict = None, raw_response: bool = False):
         """Make API request with auto-refresh and 401 retry."""
         token = self.token_mgr.get_valid_token()
         url = f"{self._base_url()}/{path}"
@@ -411,7 +426,8 @@ class QBOClient:
         for attempt in range(2):
             try:
                 resp = requests.request(
-                    method, url,
+                    method,
+                    url,
                     headers=self._headers(token),
                     params=params,
                     json=json_body,
@@ -440,9 +456,7 @@ class QBOClient:
                 fault = error_json.get("Fault", {})
                 errors = fault.get("Error", [])
                 if errors:
-                    error_detail = "; ".join(
-                        f"{e.get('Message', '')} — {e.get('Detail', '')}" for e in errors
-                    )
+                    error_detail = "; ".join(f"{e.get('Message', '')} — {e.get('Detail', '')}" for e in errors)
             except (ValueError, AttributeError):
                 pass
             err_print(f"API error {resp.status_code}: {error_detail}")
@@ -452,6 +466,7 @@ class QBOClient:
 
     def query(self, sql: str, max_pages: int = DEFAULT_MAX_PAGES) -> list:
         """Run QBO query with auto-pagination."""
+
         def _extract_entities(data: dict) -> list:
             qr = data.get("QueryResponse", {})
             for key, val in qr.items():
@@ -492,9 +507,7 @@ class QBOClient:
     def delete(self, entity: str, entity_id: str) -> dict:
         current = self.get(entity, entity_id)
         entity_data = current.get(entity, current)
-        return self.request("POST", entity.lower(),
-                            params={"operation": "delete"},
-                            json_body=entity_data)
+        return self.request("POST", entity.lower(), params={"operation": "delete"}, json_body=entity_data)
 
     def report(self, report_type: str, params: dict = None) -> dict:
         return self.request("GET", f"reports/{report_type}", params=params)
@@ -505,8 +518,10 @@ class QBOClient:
 
 # ─── GL Report Engine ────────────────────────────────────────────────────────
 
+
 class GLTransaction:
     """A single GL transaction."""
+
     __slots__ = ("date", "txn_type", "txn_id", "num", "customer", "memo", "account", "amount")
 
     def __init__(self, date="", txn_type="", txn_id="", num="", customer="", memo="", account="", amount=0.0):
@@ -666,36 +681,35 @@ def _discover_account_tree(client: "QBOClient", account_ref: str) -> dict:
     if account_ref.isdigit():
         parent_id = account_ref
         safe_ref = _qbo_escape(account_ref)
-        accts = client.query(
-            f"SELECT Id, Name, FullyQualifiedName FROM Account WHERE Id = '{safe_ref}'"
+        accts = client.query(f"SELECT Id, Name, FullyQualifiedName FROM Account WHERE Id = '{safe_ref}'")
+        parent_name = (
+            accts[0].get("FullyQualifiedName", accts[0].get("Name", f"Account {account_ref}"))
+            if accts
+            else f"Account {account_ref}"
         )
-        parent_name = (accts[0].get("FullyQualifiedName", accts[0].get("Name", f"Account {account_ref}"))
-                       if accts else f"Account {account_ref}")
     else:
         safe_ref = _qbo_escape(account_ref)
-        accts = client.query(
-            f"SELECT Id, Name, FullyQualifiedName FROM Account WHERE Name LIKE '%{safe_ref}%'"
-        )
+        accts = client.query(f"SELECT Id, Name, FullyQualifiedName FROM Account WHERE Name LIKE '%{safe_ref}%'")
         if not accts:
             die(f"No account found matching '{account_ref}'")
         match = next((a for a in accts if a["Name"].lower() == account_ref.lower()), accts[0])
         parent_id = match["Id"]
         parent_name = match.get("FullyQualifiedName", match["Name"])
 
-    all_accts = client.query(
-        "SELECT Id, Name, FullyQualifiedName, SubAccount, ParentRef FROM Account"
-    )
+    all_accts = client.query("SELECT Id, Name, FullyQualifiedName, SubAccount, ParentRef FROM Account")
 
     def build_children(pid: str) -> list[dict]:
         kids = []
         for a in all_accts:
             pr = a.get("ParentRef", {})
             if isinstance(pr, dict) and pr.get("value") == pid:
-                kids.append({
-                    "name": a["Name"],
-                    "id": a["Id"],
-                    "children": build_children(a["Id"]),
-                })
+                kids.append(
+                    {
+                        "name": a["Name"],
+                        "id": a["Id"],
+                        "children": build_children(a["Id"]),
+                    }
+                )
         kids.sort(key=lambda x: x["name"])
         return kids
 
@@ -708,9 +722,7 @@ def _discover_account_tree(client: "QBOClient", account_ref: str) -> dict:
 
 def _list_all_accounts(client: "QBOClient"):
     """Print all top-level accounts grouped by type."""
-    all_accts = client.query(
-        "SELECT Id, Name, FullyQualifiedName, AccountType, SubAccount, ParentRef FROM Account"
-    )
+    all_accts = client.query("SELECT Id, Name, FullyQualifiedName, AccountType, SubAccount, ParentRef FROM Account")
 
     def count_descendants(pid: str) -> int:
         total = 0
@@ -790,9 +802,12 @@ def _format_amount(amount: float, currency: str = "") -> str:
 def _is_month_start(d: datetime) -> bool:
     return d.day == 1
 
+
 def _is_month_end(d: datetime) -> bool:
     import calendar
+
     return d.day == calendar.monthrange(d.year, d.month)[1]
+
 
 def _format_date_range(start: str, end: str) -> str:
     s = datetime.strptime(start, "%Y-%m-%d")
@@ -810,12 +825,12 @@ def _format_date_range(start: str, end: str) -> str:
         else:
             return f"{s.strftime('%B')} {s.day}-{e.day}, {s.year}"
     elif s.year == e.year:
-        s_fmt = s.strftime('%B') if s_clean else f"{s.strftime('%B')} {s.day}"
-        e_fmt = e.strftime('%B') if e_clean else f"{e.strftime('%B')} {e.day}"
+        s_fmt = s.strftime("%B") if s_clean else f"{s.strftime('%B')} {s.day}"
+        e_fmt = e.strftime("%B") if e_clean else f"{e.strftime('%B')} {e.day}"
         return f"{s_fmt}-{e_fmt}, {s.year}"
     else:
-        s_fmt = s.strftime('%B %Y') if s_clean else f"{s.day} {s.strftime('%B %Y')}"
-        e_fmt = e.strftime('%B %Y') if e_clean else f"{e.day} {e.strftime('%B %Y')}"
+        s_fmt = s.strftime("%B %Y") if s_clean else f"{s.day} {s.strftime('%B %Y')}"
+        e_fmt = e.strftime("%B %Y") if e_clean else f"{e.day} {e.strftime('%B %Y')}"
         return f"{s_fmt}-{e_fmt}"
 
 
@@ -843,9 +858,14 @@ def _compute_subtotal(gl_sections: list[GLSection], node: dict) -> tuple[float, 
     return total_amt, total_cnt
 
 
-def _build_report_lines(gl_sections: list[GLSection], node: dict,
-                        currency: str, indent: int = 0, lines: list | None = None,
-                        expanded: bool = False) -> list[str]:
+def _build_report_lines(
+    gl_sections: list[GLSection],
+    node: dict,
+    currency: str,
+    indent: int = 0,
+    lines: list | None = None,
+    expanded: bool = False,
+) -> list[str]:
     if lines is None:
         lines = []
 
@@ -892,8 +912,7 @@ def _append_txn_lines(txns: list[GLTransaction], currency: str, indent: int, lin
         lines.append(_pad_line(label, _format_amount(t.amount, currency), prefix))
 
 
-def _build_txns_report(gl_sections: list[GLSection], node: dict,
-                       currency: str) -> list[str]:
+def _build_txns_report(gl_sections: list[GLSection], node: dict, currency: str) -> list[str]:
     """Flat list of all transactions sorted by date."""
     section = _find_gl_section(gl_sections, node["name"])
     if not section:
@@ -930,9 +949,9 @@ def _collapse_tree(node: dict) -> dict:
     return {"name": node["name"], "id": node["id"], "children": []}
 
 
-def _build_by_customer_report(gl_sections: list[GLSection], node: dict,
-                              currency: str, customer_filter: str = "",
-                              sort_by: str = "alpha") -> list[str]:
+def _build_by_customer_report(
+    gl_sections: list[GLSection], node: dict, currency: str, customer_filter: str = "", sort_by: str = "alpha"
+) -> list[str]:
     """Group all transactions by customer and show per-customer subtotals.
 
     customer_filter: if set, group at depth=1 below this customer prefix
@@ -964,7 +983,7 @@ def _build_by_customer_report(gl_sections: list[GLSection], node: dict,
                 continue
             if cust.startswith(prefix):
                 # Extract first child level: PM:B:B-BV1 → PM:B
-                remainder = cust[len(prefix):]
+                remainder = cust[len(prefix) :]
                 first_child = remainder.split(":")[0]
                 group_key = prefix + first_child
                 groups[group_key].append(t)
@@ -976,9 +995,7 @@ def _build_by_customer_report(gl_sections: list[GLSection], node: dict,
 
     # Sort
     if sort_by == "amount":
-        sorted_custs = sorted(groups.keys(),
-                              key=lambda c: abs(sum(t.amount for t in groups[c])),
-                              reverse=True)
+        sorted_custs = sorted(groups.keys(), key=lambda c: abs(sum(t.amount for t in groups[c])), reverse=True)
     else:
         sorted_custs = sorted(groups.keys())
 
@@ -995,8 +1012,9 @@ def _build_by_customer_report(gl_sections: list[GLSection], node: dict,
     if skipped_parent_txns:
         total = sum(t.amount for t in skipped_parent_txns)
         lines.append("")
-        lines.append(_pad_line(f"({customer_filter} direct) ({len(skipped_parent_txns)})",
-                               _format_amount(total, currency)))
+        lines.append(
+            _pad_line(f"({customer_filter} direct) ({len(skipped_parent_txns)})", _format_amount(total, currency))
+        )
 
     lines.append("")
     grand_total = sum(t.amount for t in txns)
@@ -1070,18 +1088,26 @@ def cmd_gl_report(args, config, token_mgr):
     total_amt, _ = _compute_subtotal(gl_sections, account_tree)
 
     if out_mode == "json":
+
         def tree_to_dict(node):
             section = _find_gl_section(gl_sections, node["name"])
             result = {"name": node["name"], "id": node["id"]}
             if not node["children"]:
                 result["amount"] = section.total_amount if section else 0.0
                 result["count"] = section.total_count if section else 0
-                txns = (section.all_transactions if section else [])
+                txns = section.all_transactions if section else []
                 if txns:
                     result["transactions"] = [
-                        {"date": t.date, "type": t.txn_type, "id": t.txn_id,
-                         "num": t.num, "customer": t.customer, "memo": t.memo,
-                         "account": t.account, "amount": t.amount}
+                        {
+                            "date": t.date,
+                            "type": t.txn_type,
+                            "id": t.txn_id,
+                            "num": t.num,
+                            "customer": t.customer,
+                            "memo": t.memo,
+                            "account": t.account,
+                            "amount": t.amount,
+                        }
                         for t in sorted(txns, key=lambda x: x.date)
                     ]
             else:
@@ -1093,9 +1119,16 @@ def cmd_gl_report(args, config, token_mgr):
                 result["children"] = [tree_to_dict(c) for c in node["children"]]
                 if section and section.transactions:
                     result["transactions"] = [
-                        {"date": t.date, "type": t.txn_type, "id": t.txn_id,
-                         "num": t.num, "customer": t.customer, "memo": t.memo,
-                         "account": t.account, "amount": t.amount}
+                        {
+                            "date": t.date,
+                            "type": t.txn_type,
+                            "id": t.txn_id,
+                            "num": t.num,
+                            "customer": t.customer,
+                            "memo": t.memo,
+                            "account": t.account,
+                            "amount": t.amount,
+                        }
                         for t in sorted(section.transactions, key=lambda x: x.date)
                     ]
             return result
@@ -1120,16 +1153,20 @@ def cmd_gl_report(args, config, token_mgr):
 
     elif args.by_customer:
         lines = [title, date_range, ""]
-        lines.extend(_build_by_customer_report(
-            gl_sections, account_tree, currency,
-            customer_filter=cust_name or "",
-            sort_by=args.sort,
-        ))
+        lines.extend(
+            _build_by_customer_report(
+                gl_sections,
+                account_tree,
+                currency,
+                customer_filter=cust_name or "",
+                sort_by=args.sort,
+            )
+        )
         print("\n".join(lines))
 
     else:
         # text or expanded
-        expanded = (out_mode == "expanded")
+        expanded = out_mode == "expanded"
         lines = [title, date_range, ""]
         _build_report_lines(gl_sections, account_tree, currency, indent=0, lines=lines, expanded=expanded)
         lines.append("")
@@ -1139,17 +1176,20 @@ def cmd_gl_report(args, config, token_mgr):
 
 # ─── Auth Commands ───────────────────────────────────────────────────────────
 
+
 def cmd_auth_init(args, config, token_mgr):
     """Interactive OAuth authorization flow."""
     config.validate(need_tokens=False)
 
-    auth_params = urlencode({
-        "client_id": config.client_id,
-        "scope": SCOPE,
-        "redirect_uri": config.redirect_uri,
-        "response_type": "code",
-        "state": os.urandom(16).hex(),
-    })
+    auth_params = urlencode(
+        {
+            "client_id": config.client_id,
+            "scope": SCOPE,
+            "redirect_uri": config.redirect_uri,
+            "response_type": "code",
+            "state": os.urandom(16).hex(),
+        }
+    )
     auth_url = f"{AUTH_URL}?{auth_params}"
 
     if args.manual:
@@ -1303,6 +1343,7 @@ def _resolve_fmt(args) -> str:
 
 # ─── Entity Commands ─────────────────────────────────────────────────────────
 
+
 def cmd_query(args, config, token_mgr):
     client = QBOClient(config, token_mgr)
     results = client.query(args.sql, max_pages=args.max_pages)
@@ -1378,16 +1419,17 @@ def cmd_raw(args, config, token_mgr):
 
 # ─── CLI Parser ──────────────────────────────────────────────────────────────
 
+
 def main():
     parser = argparse.ArgumentParser(
         prog="qbo",
         description="QuickBooks Online CLI — query, create, update, delete entities and run reports.",
     )
     parser.add_argument("--version", "-V", action="version", version=f"%(prog)s {__version__}")
-    parser.add_argument("--format", "-f", choices=["text", "json", "tsv"], default="text",
-                        help="Output format (default: text)")
-    parser.add_argument("--sandbox", action="store_true",
-                        help="Use sandbox API endpoint")
+    parser.add_argument(
+        "--format", "-f", choices=["text", "json", "tsv"], default="text", help="Output format (default: text)"
+    )
+    parser.add_argument("--sandbox", action="store_true", help="Use sandbox API endpoint")
 
     subs = parser.add_subparsers(dest="command")
 
@@ -1396,10 +1438,10 @@ def main():
     auth_subs = auth_p.add_subparsers(dest="auth_command")
 
     init_p = auth_subs.add_parser("init", help="Start OAuth authorization flow")
-    init_p.add_argument("--manual", action="store_true",
-                        help="Manual mode: paste redirect URL instead of local callback server")
-    init_p.add_argument("--port", type=int, default=8844,
-                        help="Callback server port (default: 8844)")
+    init_p.add_argument(
+        "--manual", action="store_true", help="Manual mode: paste redirect URL instead of local callback server"
+    )
+    init_p.add_argument("--port", type=int, default=8844, help="Callback server port (default: 8844)")
 
     auth_subs.add_parser("status", help="Show token status")
     auth_subs.add_parser("refresh", help="Force token refresh")
@@ -1410,8 +1452,9 @@ def main():
     # ── query ──
     query_p = subs.add_parser("query", help="Run a QBO query (SQL-like)")
     query_p.add_argument("sql", help='QBO query, e.g. "SELECT * FROM Customer"')
-    query_p.add_argument("--max-pages", type=int, default=DEFAULT_MAX_PAGES,
-                         help=f"Max pagination pages (default: {DEFAULT_MAX_PAGES})")
+    query_p.add_argument(
+        "--max-pages", type=int, default=DEFAULT_MAX_PAGES, help=f"Max pagination pages (default: {DEFAULT_MAX_PAGES})"
+    )
     query_p.add_argument("-o", "--output", choices=["text", "json", "tsv"], default=None, help=_FMT_HELP)
 
     # ── get ──
@@ -1449,37 +1492,46 @@ def main():
     raw_p.add_argument("-o", "--output", choices=["text", "json", "tsv"], default=None, help=_FMT_HELP)
 
     # ── gl-report ──
-    gl_p = subs.add_parser("gl-report", help="Hierarchical General Ledger report by account & customer",
-                           formatter_class=argparse.RawDescriptionHelpFormatter,
-                           epilog="""examples:
+    gl_p = subs.add_parser(
+        "gl-report",
+        help="Hierarchical General Ledger report by account & customer",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""examples:
   %(prog)s -c "John Smith" -a 125                    # report for account 125
   %(prog)s -c "John Smith" -a "Revenue" --start 2025-01-01
   %(prog)s -c "John Smith" -a 125 --currency USD     # custom currency prefix
   %(prog)s --list-accounts                            # list all top-level accounts
-  %(prog)s -a 125 --list-accounts                     # show sub-account tree""")
-    gl_p.add_argument("-c", "--customer", default=None,
-                      help="Customer/owner name or QBO ID")
-    gl_p.add_argument("-a", "--account", default=None,
-                      help="Top-level account ID or name (auto-discovers sub-accounts)")
-    gl_p.add_argument("--start", default=None,
-                      help="Start date YYYY-MM-DD (default: first transaction)")
-    gl_p.add_argument("--end", default=None,
-                      help="End date YYYY-MM-DD (default: today)")
-    gl_p.add_argument("--method", default="Cash", choices=["Cash", "Accrual"],
-                      help="Accounting method (default: Cash)")
-    gl_p.add_argument("--currency", default="",
-                      help="Currency prefix for display (e.g. THB, USD, €)")
-    gl_p.add_argument("--list-accounts", action="store_true",
-                      help="List account hierarchy (or all top-level if -a omitted)")
-    gl_p.add_argument("-o", "--output", default="text",
-                      choices=["text", "json", "txns", "expanded"],
-                      help="Output format: text (default), json, txns (flat transaction list), expanded (tree + transactions)")
-    gl_p.add_argument("--no-sub", action="store_true",
-                      help="Don't break down into sub-accounts (roll up into parent)")
-    gl_p.add_argument("-g", "--by-customer", action="store_true",
-                      help="Group by customer (shows per-customer subtotals)")
-    gl_p.add_argument("-s", "--sort", default="alpha", choices=["alpha", "amount"],
-                      help="Sort order for --by-customer: alpha (default) or amount")
+  %(prog)s -a 125 --list-accounts                     # show sub-account tree""",
+    )
+    gl_p.add_argument("-c", "--customer", default=None, help="Customer/owner name or QBO ID")
+    gl_p.add_argument(
+        "-a", "--account", default=None, help="Top-level account ID or name (auto-discovers sub-accounts)"
+    )
+    gl_p.add_argument("--start", default=None, help="Start date YYYY-MM-DD (default: first transaction)")
+    gl_p.add_argument("--end", default=None, help="End date YYYY-MM-DD (default: today)")
+    gl_p.add_argument("--method", default="Cash", choices=["Cash", "Accrual"], help="Accounting method (default: Cash)")
+    gl_p.add_argument("--currency", default="", help="Currency prefix for display (e.g. THB, USD, €)")
+    gl_p.add_argument(
+        "--list-accounts", action="store_true", help="List account hierarchy (or all top-level if -a omitted)"
+    )
+    gl_p.add_argument(
+        "-o",
+        "--output",
+        default="text",
+        choices=["text", "json", "txns", "expanded"],
+        help="Output format: text (default), json, txns (flat transaction list), expanded (tree + transactions)",
+    )
+    gl_p.add_argument("--no-sub", action="store_true", help="Don't break down into sub-accounts (roll up into parent)")
+    gl_p.add_argument(
+        "-g", "--by-customer", action="store_true", help="Group by customer (shows per-customer subtotals)"
+    )
+    gl_p.add_argument(
+        "-s",
+        "--sort",
+        default="alpha",
+        choices=["alpha", "amount"],
+        help="Sort order for --by-customer: alpha (default) or amount",
+    )
 
     args = parser.parse_args()
 
