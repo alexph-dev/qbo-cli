@@ -390,6 +390,21 @@ class QBOClient:
 
 # ─── GL Report Engine ────────────────────────────────────────────────────────
 
+class GLTransaction:
+    """A single GL transaction."""
+    __slots__ = ("date", "txn_type", "txn_id", "num", "customer", "memo", "account", "amount")
+
+    def __init__(self, date="", txn_type="", txn_id="", num="", customer="", memo="", account="", amount=0.0):
+        self.date = date
+        self.txn_type = txn_type
+        self.txn_id = txn_id
+        self.num = num
+        self.customer = customer
+        self.memo = memo
+        self.account = account
+        self.amount = amount
+
+
 class GLSection:
     """Parsed GL account section with amounts and sub-sections."""
 
@@ -399,6 +414,7 @@ class GLSection:
         self.direct_amount = 0.0
         self.direct_count = 0
         self.children: list["GLSection"] = []
+        self.transactions: list[GLTransaction] = []
 
     @property
     def total_amount(self) -> float:
@@ -407,6 +423,37 @@ class GLSection:
     @property
     def total_count(self) -> int:
         return self.direct_count + sum(c.total_count for c in self.children)
+
+    @property
+    def all_transactions(self) -> list[GLTransaction]:
+        """All transactions including from sub-sections."""
+        txns = list(self.transactions)
+        for c in self.children:
+            txns.extend(c.all_transactions)
+        return txns
+
+
+def _parse_txn_from_row(cols: list[dict]) -> GLTransaction | None:
+    """Parse a Data row's ColData into a GLTransaction."""
+    if not cols or cols[0].get("value", "") == "Beginning Balance":
+        return None
+    amt_str = cols[6].get("value", "") if len(cols) > 6 else ""
+    if not amt_str:
+        return None
+    try:
+        amount = float(amt_str)
+    except ValueError:
+        return None
+    return GLTransaction(
+        date=cols[0].get("value", "") if len(cols) > 0 else "",
+        txn_type=cols[1].get("value", "") if len(cols) > 1 else "",
+        txn_id=cols[1].get("id", "") if len(cols) > 1 else "",
+        num=cols[2].get("value", "") if len(cols) > 2 else "",
+        customer=cols[3].get("value", "") if len(cols) > 3 else "",
+        memo=cols[4].get("value", "") if len(cols) > 4 else "",
+        account=cols[5].get("value", "") if len(cols) > 5 else "",
+        amount=amount,
+    )
 
 
 def _parse_gl_rows(rows_obj: dict) -> list[GLSection]:
@@ -429,16 +476,11 @@ def _parse_gl_rows(rows_obj: dict) -> list[GLSection]:
             if inner_rows and "Row" in inner_rows:
                 for inner_row in inner_rows["Row"]:
                     if inner_row.get("type") == "Data":
-                        cols = inner_row.get("ColData", [])
-                        if cols and cols[0].get("value", "") == "Beginning Balance":
-                            continue
-                        amt_str = cols[6].get("value", "") if len(cols) > 6 else ""
-                        if amt_str:
-                            try:
-                                placeholder.direct_amount += float(amt_str)
-                                placeholder.direct_count += 1
-                            except ValueError:
-                                pass
+                        txn = _parse_txn_from_row(inner_row.get("ColData", []))
+                        if txn:
+                            placeholder.direct_amount += txn.amount
+                            placeholder.direct_count += 1
+                            placeholder.transactions.append(txn)
             sections.append(placeholder)
             continue
 
@@ -448,22 +490,18 @@ def _parse_gl_rows(rows_obj: dict) -> list[GLSection]:
         if inner_rows and "Row" in inner_rows:
             for inner_row in inner_rows["Row"]:
                 if inner_row.get("type") == "Data":
-                    cols = inner_row.get("ColData", [])
-                    if cols and cols[0].get("value", "") == "Beginning Balance":
-                        continue
-                    amt_str = cols[6].get("value", "") if len(cols) > 6 else ""
-                    if amt_str:
-                        try:
-                            section.direct_amount += float(amt_str)
-                            section.direct_count += 1
-                        except ValueError:
-                            pass
+                    txn = _parse_txn_from_row(inner_row.get("ColData", []))
+                    if txn:
+                        section.direct_amount += txn.amount
+                        section.direct_count += 1
+                        section.transactions.append(txn)
 
         section.children = _parse_gl_rows(inner_rows)
         absorbed = [c for c in section.children if c.name == "__direct__"]
         for a in absorbed:
             section.direct_amount += a.direct_amount
             section.direct_count += a.direct_count
+            section.transactions.extend(a.transactions)
         section.children = [c for c in section.children if c.name != "__direct__"]
 
         sections.append(section)
@@ -667,7 +705,8 @@ def _compute_subtotal(gl_sections: list[GLSection], node: dict) -> tuple[float, 
 
 
 def _build_report_lines(gl_sections: list[GLSection], node: dict,
-                        currency: str, indent: int = 0, lines: list | None = None) -> list[str]:
+                        currency: str, indent: int = 0, lines: list | None = None,
+                        expanded: bool = False) -> list[str]:
     if lines is None:
         lines = []
 
@@ -681,6 +720,8 @@ def _build_report_lines(gl_sections: list[GLSection], node: dict,
         if cnt == 0 and amt == 0.0:
             return lines
         lines.append(_pad_line(f"{node['name']} ({cnt})", _format_amount(amt, currency), prefix))
+        if expanded and section:
+            _append_txn_lines(section.all_transactions, currency, indent + 1, lines)
     else:
         if subtotal_cnt == 0 and subtotal_amt == 0.0:
             return lines
@@ -690,15 +731,64 @@ def _build_report_lines(gl_sections: list[GLSection], node: dict,
         own_amt = section.direct_amount if section else 0.0
         if own_cnt > 0:
             lines.append(_pad_line(f"{node['name']} ({own_cnt})", _format_amount(own_amt, currency), prefix))
+            if expanded and section:
+                _append_txn_lines(section.transactions, currency, indent + 1, lines)
         else:
             lines.append(f"{prefix}{node['name']}")
 
         for child in node["children"]:
-            _build_report_lines(gl_sections, child, currency, indent + 1, lines)
+            _build_report_lines(gl_sections, child, currency, indent + 1, lines, expanded=expanded)
 
         lines.append(_pad_line(f"Total for {node['name']}", _format_amount(subtotal_amt, currency), prefix))
 
     return lines
+
+
+def _append_txn_lines(txns: list[GLTransaction], currency: str, indent: int, lines: list[str]):
+    """Append formatted transaction lines."""
+    for t in sorted(txns, key=lambda x: x.date):
+        prefix = "  " * indent
+        memo = t.memo[:40] + "…" if len(t.memo) > 40 else t.memo
+        label = f"{t.date}  {t.txn_type:<12s} {memo}"
+        lines.append(_pad_line(label, _format_amount(t.amount, currency), prefix))
+
+
+def _build_txns_report(gl_sections: list[GLSection], node: dict,
+                       currency: str) -> list[str]:
+    """Flat list of all transactions sorted by date."""
+    section = _find_gl_section(gl_sections, node["name"])
+    if not section:
+        return ["(no transactions)"]
+
+    txns = section.all_transactions
+    if not txns:
+        return ["(no transactions)"]
+
+    txns.sort(key=lambda t: t.date)
+
+    lines = []
+    # Header
+    lines.append(f"{'Date':<12s} {'Type':<14s} {'Amount':>14s}  {'Account'}")
+    lines.append("─" * REPORT_WIDTH)
+
+    for t in txns:
+        acct_short = t.account.split(":")[-1] if t.account else ""
+        amt_str = _format_amount(t.amount, currency)
+        lines.append(f"{t.date:<12s} {t.txn_type:<14s} {amt_str:>14s}  {acct_short}")
+        if t.memo:
+            memo = t.memo[:68] + "…" if len(t.memo) > 68 else t.memo
+            lines.append(f"{'':12s} {memo}")
+
+    lines.append("─" * REPORT_WIDTH)
+    total = sum(t.amount for t in txns)
+    lines.append(f"{'TOTAL':<12s} {'':14s} {_format_amount(total, currency):>14s}  ({len(txns)} transactions)")
+
+    return lines
+
+
+def _collapse_tree(node: dict) -> dict:
+    """Collapse a tree to a single node (no children) for --no-sub mode."""
+    return {"name": node["name"], "id": node["id"], "children": []}
 
 
 def cmd_gl_report(args, config, token_mgr):
@@ -749,6 +839,10 @@ def cmd_gl_report(args, config, token_mgr):
 
     gl_sections = _parse_gl_rows(gl_data.get("Rows", {}))
 
+    # Collapse tree if --no-sub
+    if args.no_sub:
+        account_tree = _collapse_tree(account_tree)
+
     # Auto-detect start date
     display_start = start_date
     if auto_start:
@@ -757,8 +851,13 @@ def cmd_gl_report(args, config, token_mgr):
             display_start = actual_first
 
     # Output
-    if args.json:
-        # JSON output: structured data
+    out_mode = args.output
+    title = f"General Ledger Report - {cust_name}" if cust_name else "General Ledger Report"
+    date_range = _format_date_range(display_start, end_date)
+    currency = args.currency
+    total_amt, _ = _compute_subtotal(gl_sections, account_tree)
+
+    if out_mode == "json":
         total_amt, total_cnt = _compute_subtotal(gl_sections, account_tree)
 
         def tree_to_dict(node):
@@ -767,6 +866,15 @@ def cmd_gl_report(args, config, token_mgr):
             if not node["children"]:
                 result["amount"] = section.total_amount if section else 0.0
                 result["count"] = section.total_count if section else 0
+                if out_mode == "json":
+                    txns = (section.all_transactions if section else [])
+                    if txns:
+                        result["transactions"] = [
+                            {"date": t.date, "type": t.txn_type, "id": t.txn_id,
+                             "num": t.num, "customer": t.customer, "memo": t.memo,
+                             "account": t.account, "amount": t.amount}
+                            for t in sorted(txns, key=lambda x: x.date)
+                        ]
             else:
                 result["direct_amount"] = section.direct_amount if section else 0.0
                 result["direct_count"] = section.direct_count if section else 0
@@ -774,6 +882,13 @@ def cmd_gl_report(args, config, token_mgr):
                 result["total_amount"] = amt
                 result["total_count"] = cnt
                 result["children"] = [tree_to_dict(c) for c in node["children"]]
+                if section and section.transactions:
+                    result["transactions"] = [
+                        {"date": t.date, "type": t.txn_type, "id": t.txn_id,
+                         "num": t.num, "customer": t.customer, "memo": t.memo,
+                         "account": t.account, "amount": t.amount}
+                        for t in sorted(section.transactions, key=lambda x: x.date)
+                    ]
             return result
 
         report_data = {
@@ -788,19 +903,17 @@ def cmd_gl_report(args, config, token_mgr):
             report_data["customer_id"] = cust_id
 
         output(report_data)
-    else:
-        # Text report
-        date_range = _format_date_range(display_start, end_date)
-        total_amt, _ = _compute_subtotal(gl_sections, account_tree)
-        currency = args.currency
 
-        title = f"General Ledger Report - {cust_name}" if cust_name else "General Ledger Report"
-        lines = [
-            title,
-            date_range,
-            "",
-        ]
-        _build_report_lines(gl_sections, account_tree, currency, indent=0, lines=lines)
+    elif out_mode == "txns":
+        lines = [title, date_range, ""]
+        lines.extend(_build_txns_report(gl_sections, account_tree, currency))
+        print("\n".join(lines))
+
+    else:
+        # text or expanded
+        expanded = (out_mode == "expanded")
+        lines = [title, date_range, ""]
+        _build_report_lines(gl_sections, account_tree, currency, indent=0, lines=lines, expanded=expanded)
         lines.append("")
         lines.append(_pad_line("TOTAL", _format_amount(total_amt, currency)))
         print("\n".join(lines))
@@ -1127,8 +1240,11 @@ def main():
                       help="Currency prefix for display (e.g. THB, USD, €)")
     gl_p.add_argument("--list-accounts", action="store_true",
                       help="List account hierarchy (or all top-level if -a omitted)")
-    gl_p.add_argument("--json", action="store_true",
-                      help="Output as JSON (default is human-readable text)")
+    gl_p.add_argument("-o", "--output", default="text",
+                      choices=["text", "json", "txns", "expanded"],
+                      help="Output format: text (default), json, txns (flat transaction list), expanded (tree + transactions)")
+    gl_p.add_argument("--no-sub", action="store_true",
+                      help="Don't break down into sub-accounts (roll up into parent)")
 
     args = parser.parse_args()
 
