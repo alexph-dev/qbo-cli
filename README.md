@@ -252,6 +252,20 @@ Force a manual refresh:
 qbo auth refresh
 ```
 
+## CI/CD
+
+**Lint** — runs on every push and PR to `main`:
+- `ruff check` (errors, warnings, import sorting)
+- `ruff format --check` (code style)
+
+**Publish** — auto-publishes to PyPI when you create a GitHub Release:
+1. Bump version in `pyproject.toml`
+2. Commit and push
+3. Create a GitHub Release (tag `vX.Y.Z`)
+4. Package is built and published automatically via [trusted publishing](https://docs.pypi.org/trusted-publishers/)
+
+> **First-time setup:** Add `qbo-cli` as a trusted publisher on PyPI → *Your projects* → *Publishing* → add GitHub publisher: `alexph-dev/qbo-cli`, workflow `publish.yml`, environment `pypi`.
+
 ## Contributing
 
 Contributions welcome. Please open an issue first to discuss what you'd like to change.
@@ -260,6 +274,7 @@ Contributions welcome. Please open an issue first to discuss what you'd like to 
 git clone https://github.com/alexph-dev/qbo-cli.git
 cd qbo-cli
 pip install -e .
+ruff check qbo_cli/   # lint before committing
 ```
 
 ## License
