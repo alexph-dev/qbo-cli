@@ -15,11 +15,15 @@ import json
 import os
 import sys
 import time
+from collections import defaultdict
+from datetime import datetime
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from pathlib import Path
 from urllib.parse import urlencode, urlparse, parse_qs
 
 import requests
+
+__version__ = "0.4.1"
 
 # ─── Constants ───────────────────────────────────────────────────────────────
 
@@ -40,6 +44,12 @@ REFRESH_EXPIRY_WARN_DAYS = 14  # warn when refresh token < this many days left
 
 
 # ─── Helpers ─────────────────────────────────────────────────────────────────
+
+def _qbo_escape(value: str) -> str:
+    """Escape a value for use in QBO query strings.
+    QBO uses single-quoted strings; escape single quotes by doubling them."""
+    return value.replace("'", "''")
+
 
 def die(msg: str, code: int = 1):
     """Print to stderr and exit."""
@@ -242,6 +252,7 @@ class TokenManager:
     def save(self, tokens: dict):
         """Atomic write: temp file → rename. Permissions set before rename."""
         QBO_DIR.mkdir(parents=True, exist_ok=True)
+        QBO_DIR.chmod(0o700)
         tmp = TOKENS_PATH.with_suffix(".tmp")
         tmp.write_text(json.dumps(tokens, indent=2))
         tmp.chmod(0o600)  # set permissions BEFORE rename to avoid exposure window
@@ -647,14 +658,16 @@ def _discover_account_tree(client: "QBOClient", account_ref: str) -> dict:
     """
     if account_ref.isdigit():
         parent_id = account_ref
+        safe_ref = _qbo_escape(account_ref)
         accts = client.query(
-            f"SELECT Id, Name, FullyQualifiedName FROM Account WHERE Id = '{account_ref}'"
+            f"SELECT Id, Name, FullyQualifiedName FROM Account WHERE Id = '{safe_ref}'"
         )
         parent_name = (accts[0].get("FullyQualifiedName", accts[0].get("Name", f"Account {account_ref}"))
                        if accts else f"Account {account_ref}")
     else:
+        safe_ref = _qbo_escape(account_ref)
         accts = client.query(
-            f"SELECT Id, Name, FullyQualifiedName FROM Account WHERE Name LIKE '%{account_ref}%'"
+            f"SELECT Id, Name, FullyQualifiedName FROM Account WHERE Name LIKE '%{safe_ref}%'"
         )
         if not accts:
             die(f"No account found matching '{account_ref}'")
@@ -735,12 +748,13 @@ def _resolve_customer(client: "QBOClient", name: str) -> tuple[str, str]:
         return name, cust.get("FullyQualifiedName", cust.get("DisplayName", name))
 
     # Exact then fuzzy
+    safe_name = _qbo_escape(name)
     customers = client.query(
-        f"SELECT Id, DisplayName, FullyQualifiedName FROM Customer WHERE DisplayName = '{name}'"
+        f"SELECT Id, DisplayName, FullyQualifiedName FROM Customer WHERE DisplayName = '{safe_name}'"
     )
     if not customers:
         customers = client.query(
-            f"SELECT Id, DisplayName, FullyQualifiedName FROM Customer WHERE DisplayName LIKE '%{name}%'"
+            f"SELECT Id, DisplayName, FullyQualifiedName FROM Customer WHERE DisplayName LIKE '%{safe_name}%'"
         )
     if not customers:
         die(f"No customer found matching '{name}'")
@@ -767,9 +781,8 @@ def _format_amount(amount: float, currency: str = "") -> str:
 
 
 def _format_date_range(start: str, end: str) -> str:
-    from datetime import datetime as dt
-    s = dt.strptime(start, "%Y-%m-%d")
-    e = dt.strptime(end, "%Y-%m-%d")
+    s = datetime.strptime(start, "%Y-%m-%d")
+    e = datetime.strptime(end, "%Y-%m-%d")
     if s.month == e.month and s.year == e.year:
         return f"{s.strftime('%B')}, {s.year}"
     elif s.year == e.year:
@@ -897,7 +910,6 @@ def _build_by_customer_report(gl_sections: list[GLSection], node: dict,
                      (e.g. "PM" groups PM:B:B-BV1 → PM:B, skips PM itself)
     sort_by: "alpha" (alphabetical) or "amount" (absolute total descending)
     """
-    from collections import defaultdict
 
     section = _find_gl_section(gl_sections, node["name"])
     if not section:
@@ -966,8 +978,6 @@ def _build_by_customer_report(gl_sections: list[GLSection], node: dict,
 
 def cmd_gl_report(args, config, token_mgr):
     """Generate a hierarchical General Ledger report."""
-    from datetime import datetime as dt
-
     client = QBOClient(config, token_mgr)
 
     # --list-accounts mode
@@ -985,7 +995,7 @@ def cmd_gl_report(args, config, token_mgr):
         cust_id, cust_name = _resolve_customer(client, args.customer)
 
     # Resolve dates
-    end_date = args.end or dt.now().strftime("%Y-%m-%d")
+    end_date = args.end or datetime.now().strftime("%Y-%m-%d")
     start_date = args.start or "2000-01-01"
     auto_start = args.start is None
 
@@ -1031,23 +1041,20 @@ def cmd_gl_report(args, config, token_mgr):
     total_amt, _ = _compute_subtotal(gl_sections, account_tree)
 
     if out_mode == "json":
-        total_amt, total_cnt = _compute_subtotal(gl_sections, account_tree)
-
         def tree_to_dict(node):
             section = _find_gl_section(gl_sections, node["name"])
             result = {"name": node["name"], "id": node["id"]}
             if not node["children"]:
                 result["amount"] = section.total_amount if section else 0.0
                 result["count"] = section.total_count if section else 0
-                if out_mode == "json":
-                    txns = (section.all_transactions if section else [])
-                    if txns:
-                        result["transactions"] = [
-                            {"date": t.date, "type": t.txn_type, "id": t.txn_id,
-                             "num": t.num, "customer": t.customer, "memo": t.memo,
-                             "account": t.account, "amount": t.amount}
-                            for t in sorted(txns, key=lambda x: x.date)
-                        ]
+                txns = (section.all_transactions if section else [])
+                if txns:
+                    result["transactions"] = [
+                        {"date": t.date, "type": t.txn_type, "id": t.txn_id,
+                         "num": t.num, "customer": t.customer, "memo": t.memo,
+                         "account": t.account, "amount": t.amount}
+                        for t in sorted(txns, key=lambda x: x.date)
+                    ]
             else:
                 result["direct_amount"] = section.direct_amount if section else 0.0
                 result["direct_count"] = section.direct_count if section else 0
@@ -1246,6 +1253,7 @@ def cmd_auth_setup(args, config, token_mgr):
         cfg["sandbox"] = existing["sandbox"]
 
     QBO_DIR.mkdir(parents=True, exist_ok=True)
+    QBO_DIR.chmod(0o700)
     CONFIG_PATH.write_text(json.dumps(cfg, indent=2) + "\n")
     os.chmod(CONFIG_PATH, 0o600)
 
@@ -1346,6 +1354,7 @@ def main():
         prog="qbo",
         description="QuickBooks Online CLI — query, create, update, delete entities and run reports.",
     )
+    parser.add_argument("--version", "-V", action="version", version=f"%(prog)s {__version__}")
     parser.add_argument("--format", "-f", choices=["text", "json", "tsv"], default="text",
                         help="Output format (default: text)")
     parser.add_argument("--sandbox", action="store_true",
