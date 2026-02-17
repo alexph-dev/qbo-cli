@@ -889,8 +889,16 @@ def _collapse_tree(node: dict) -> dict:
 
 
 def _build_by_customer_report(gl_sections: list[GLSection], node: dict,
-                              currency: str) -> list[str]:
-    """Group all transactions by customer and show per-customer subtotals."""
+                              currency: str, customer_filter: str = "",
+                              sort_by: str = "alpha") -> list[str]:
+    """Group all transactions by customer and show per-customer subtotals.
+
+    customer_filter: if set, group at depth=1 below this customer prefix
+                     (e.g. "PM" groups PM:B:B-BV1 → PM:B, skips PM itself)
+    sort_by: "alpha" (alphabetical) or "amount" (absolute total descending)
+    """
+    from collections import defaultdict
+
     section = _find_gl_section(gl_sections, node["name"])
     if not section:
         return ["(no transactions)"]
@@ -899,17 +907,39 @@ def _build_by_customer_report(gl_sections: list[GLSection], node: dict,
     if not txns:
         return ["(no transactions)"]
 
-    # Group by customer
-    from collections import defaultdict
+    # Determine grouping key for each transaction
+    prefix = customer_filter.rstrip(":") + ":" if customer_filter else ""
+
     groups: dict[str, list[GLTransaction]] = defaultdict(list)
+    skipped_parent_txns = []
+
     for t in txns:
         cust = t.customer or "(no customer)"
-        groups[cust].append(t)
 
-    # Sort customers by absolute total descending
-    sorted_custs = sorted(groups.keys(),
-                          key=lambda c: abs(sum(t.amount for t in groups[c])),
-                          reverse=True)
+        if prefix:
+            if cust == customer_filter.rstrip(":"):
+                # Direct transactions on the parent itself — skip from groups
+                skipped_parent_txns.append(t)
+                continue
+            if cust.startswith(prefix):
+                # Extract first child level: PM:B:B-BV1 → PM:B
+                remainder = cust[len(prefix):]
+                first_child = remainder.split(":")[0]
+                group_key = prefix + first_child
+                groups[group_key].append(t)
+            else:
+                # Doesn't match filter — include as-is
+                groups[cust].append(t)
+        else:
+            groups[cust].append(t)
+
+    # Sort
+    if sort_by == "amount":
+        sorted_custs = sorted(groups.keys(),
+                              key=lambda c: abs(sum(t.amount for t in groups[c])),
+                              reverse=True)
+    else:
+        sorted_custs = sorted(groups.keys())
 
     lines = []
     lines.append(node["name"])
@@ -919,6 +949,13 @@ def _build_by_customer_report(gl_sections: list[GLSection], node: dict,
         ctxns = groups[cust]
         total = sum(t.amount for t in ctxns)
         lines.append(_pad_line(f"{cust} ({len(ctxns)})", _format_amount(total, currency)))
+
+    # Show parent's direct transactions if any
+    if skipped_parent_txns:
+        total = sum(t.amount for t in skipped_parent_txns)
+        lines.append("")
+        lines.append(_pad_line(f"({customer_filter} direct) ({len(skipped_parent_txns)})",
+                               _format_amount(total, currency)))
 
     lines.append("")
     grand_total = sum(t.amount for t in txns)
@@ -1047,7 +1084,11 @@ def cmd_gl_report(args, config, token_mgr):
 
     elif args.by_customer:
         lines = [title, date_range, ""]
-        lines.extend(_build_by_customer_report(gl_sections, account_tree, currency))
+        lines.extend(_build_by_customer_report(
+            gl_sections, account_tree, currency,
+            customer_filter=cust_name or "",
+            sort_by=args.sort,
+        ))
         print("\n".join(lines))
 
     else:
@@ -1399,6 +1440,8 @@ def main():
                       help="Don't break down into sub-accounts (roll up into parent)")
     gl_p.add_argument("-g", "--by-customer", action="store_true",
                       help="Group by customer (shows per-customer subtotals)")
+    gl_p.add_argument("-s", "--sort", default="alpha", choices=["alpha", "amount"],
+                      help="Sort order for --by-customer: alpha (default) or amount")
 
     args = parser.parse_args()
 

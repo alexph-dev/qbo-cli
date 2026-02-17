@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "qbo-cli"
-version = "0.3.1"
+version = "0.4.0"
 description = "Command-line interface for QuickBooks Online API"
 readme = "README.md"
 license = "MIT"
