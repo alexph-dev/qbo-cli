@@ -22,7 +22,7 @@ Built for QuickBooks automation — giving AI agents (like [OpenClaw](https://op
 pip install qbo-cli
 ```
 
-Requires Python 3.9+.
+Requires Python 3.9+ on macOS or Linux (uses `fcntl` for file locking).
 
 ## Setup
 
@@ -188,30 +188,33 @@ qbo gl-report --list-accounts
 # Drill into a specific account's sub-accounts
 qbo gl-report -a 125 --list-accounts
 
-# Generate a report (JSON by default)
+# Generate a report (text by default)
 qbo gl-report -c "John Smith" -a 125
 
 # Human-readable text with currency prefix
-qbo gl-report -c "John Smith" -a 125 --text --currency USD
+qbo gl-report -c "John Smith" -a 125 --currency USD
 
 # Custom date range
 qbo gl-report -c "John Smith" -a "Revenue" --start 2025-01-01 --end 2025-12-31
 
 # Dates default to: first transaction → today
-qbo gl-report -c "John Smith" -a 125 --text
+qbo gl-report -c "John Smith" -a 125
 ```
 
 ### Output formats
 
 ```bash
-# JSON (default)
+# Text output (default, human-readable table)
 qbo query "SELECT * FROM Customer"
+
+# JSON
+qbo query "SELECT * FROM Customer" -f json
 
 # TSV (tab-separated, for spreadsheets/awk)
 qbo query "SELECT * FROM Customer" -f tsv
 
 # Pipe to jq
-qbo query "SELECT * FROM Customer" | jq '.[].DisplayName'
+qbo query "SELECT * FROM Customer" -f json | jq '.[].DisplayName'
 ```
 
 ### Sandbox mode
@@ -230,7 +233,7 @@ export QBO_SANDBOX=true
 |---------|-------------|------------|---------|
 | Client ID | `QBO_CLIENT_ID` | `client_id` | — |
 | Client Secret | `QBO_CLIENT_SECRET` | `client_secret` | — |
-| Redirect URI | `QBO_REDIRECT_URI` | `redirect_uri` | — (must match your Intuit app) |
+| Redirect URI | `QBO_REDIRECT_URI` | `redirect_uri` | `http://localhost:8844/callback` |
 | Realm ID | `QBO_REALM_ID` | `realm_id` | From auth flow |
 | Sandbox mode | `QBO_SANDBOX` | `sandbox` | `false` |
 

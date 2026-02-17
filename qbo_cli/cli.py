@@ -12,7 +12,9 @@ License: MIT
 from __future__ import annotations
 
 import argparse
+import calendar
 import fcntl
+import functools
 import json
 import os
 import re
@@ -87,9 +89,8 @@ def output_text(data):
             data = data[keys[0]]
 
         # If still a single dict (not a list), show as key-value pairs
-        if isinstance(data, dict) and not any(
-            isinstance(v, list) for v in data.values() if isinstance(v, list) and v and isinstance(v[0], dict)
-        ):
+        has_nested_list = any(isinstance(v, list) and v and isinstance(v[0], dict) for v in data.values())
+        if isinstance(data, dict) and not has_nested_list:
             _output_kv(data)
             return
 
@@ -225,7 +226,7 @@ class Config:
         if isinstance(self.sandbox, str):
             self.sandbox = self.sandbox.lower() in ("1", "true", "yes")
 
-    def validate(self, need_tokens=True):
+    def validate(self):
         """Raise if missing required config."""
         if not self.client_id or not self.client_secret:
             die(
@@ -550,15 +551,15 @@ class GLSection:
         self.children: list["GLSection"] = []
         self.transactions: list[GLTransaction] = []
 
-    @property
+    @functools.cached_property
     def total_amount(self) -> float:
         return self.direct_amount + sum(c.total_amount for c in self.children)
 
-    @property
+    @functools.cached_property
     def total_count(self) -> int:
         return self.direct_count + sum(c.total_count for c in self.children)
 
-    @property
+    @functools.cached_property
     def all_transactions(self) -> list[GLTransaction]:
         """All transactions including from sub-sections."""
         txns = list(self.transactions)
@@ -644,16 +645,22 @@ def _parse_gl_rows(rows_obj: dict) -> list[GLSection]:
 
 
 def _build_section_index(sections: list[GLSection]) -> dict[str, GLSection]:
-    """Build flat name→section dict for O(1) lookups."""
+    """Build flat name/id→section dict for O(1) lookups.
+
+    Keys by both name and id to handle name collisions across hierarchy levels."""
     index = {}
     for s in sections:
         index[s.name] = s
+        if s.id:
+            index[s.id] = s
         index.update(_build_section_index(s.children))
     return index
 
 
-def _find_gl_section(section_idx: dict[str, GLSection], name: str) -> GLSection | None:
-    """Find a GL section by name (exact, then suffix-match for numbered accounts)."""
+def _find_gl_section(section_idx: dict[str, GLSection], name: str, acct_id: str = "") -> GLSection | None:
+    """Find a GL section by id (preferred) or name, with suffix-match fallback."""
+    if acct_id and acct_id in section_idx:
+        return section_idx[acct_id]
     if name in section_idx:
         return section_idx[name]
     for key in section_idx:
@@ -815,8 +822,6 @@ def _is_month_start(d: datetime) -> bool:
 
 
 def _is_month_end(d: datetime) -> bool:
-    import calendar
-
     return d.day == calendar.monthrange(d.year, d.month)[1]
 
 
@@ -831,8 +836,6 @@ def _format_date_range(start: str, end: str) -> str:
             return f"{s.strftime('%B')}, {s.year}"
         elif s_clean:
             return f"{s.strftime('%B')} 1-{e.day}, {s.year}"
-        elif e_clean:
-            return f"{s.strftime('%B')} {s.day}-{e.day}, {s.year}"
         else:
             return f"{s.strftime('%B')} {s.day}-{e.day}, {s.year}"
     elif s.year == e.year:
@@ -854,12 +857,12 @@ def _pad_line(label: str, amt_str: str, prefix: str = "") -> str:
 def _compute_subtotal(section_idx: dict[str, GLSection], node: dict) -> tuple[float, int]:
     """Compute total for a tree node (own + children, recursively)."""
     if not node["children"]:
-        section = _find_gl_section(section_idx, node["name"])
+        section = _find_gl_section(section_idx, node["name"], node.get("id", ""))
         if section:
             return section.total_amount, section.total_count
         return 0.0, 0
 
-    section = _find_gl_section(section_idx, node["name"])
+    section = _find_gl_section(section_idx, node["name"], node.get("id", ""))
     total_amt = section.direct_amount if section else 0.0
     total_cnt = section.direct_count if section else 0
     for child in node["children"]:
@@ -884,7 +887,7 @@ def _build_report_lines(
     subtotal_amt, subtotal_cnt = _compute_subtotal(section_idx, node)
 
     if not node["children"]:
-        section = _find_gl_section(section_idx, node["name"])
+        section = _find_gl_section(section_idx, node["name"], node.get("id", ""))
         amt = section.total_amount if section else 0.0
         cnt = section.total_count if section else 0
         if cnt == 0 and amt == 0.0:
@@ -896,7 +899,7 @@ def _build_report_lines(
         if subtotal_cnt == 0 and subtotal_amt == 0.0:
             return lines
 
-        section = _find_gl_section(section_idx, node["name"])
+        section = _find_gl_section(section_idx, node["name"], node.get("id", ""))
         own_cnt = section.direct_count if section else 0
         own_amt = section.direct_amount if section else 0.0
         if own_cnt > 0:
@@ -925,7 +928,7 @@ def _append_txn_lines(txns: list[GLTransaction], currency: str, indent: int, lin
 
 def _build_txns_report(section_idx: dict[str, GLSection], node: dict, currency: str) -> list[str]:
     """Flat list of all transactions sorted by date."""
-    section = _find_gl_section(section_idx, node["name"])
+    section = _find_gl_section(section_idx, node["name"], node.get("id", ""))
     if not section:
         return ["(no transactions)"]
 
@@ -970,7 +973,7 @@ def _build_by_customer_report(
     sort_by: "alpha" (alphabetical) or "amount" (absolute total descending)
     """
 
-    section = _find_gl_section(section_idx, node["name"])
+    section = _find_gl_section(section_idx, node["name"], node.get("id", ""))
     if not section:
         return ["(no transactions)"]
 
@@ -1032,6 +1035,20 @@ def _build_by_customer_report(
     lines.append(_pad_line(f"TOTAL ({len(txns)})", _format_amount(grand_total, currency)))
 
     return lines
+
+
+def _txn_to_dict(t: GLTransaction) -> dict:
+    """Serialize a GLTransaction to a plain dict."""
+    return {
+        "date": t.date,
+        "type": t.txn_type,
+        "id": t.txn_id,
+        "num": t.num,
+        "customer": t.customer,
+        "memo": t.memo,
+        "account": t.account,
+        "amount": t.amount,
+    }
 
 
 def cmd_gl_report(args, config, token_mgr):
@@ -1099,29 +1116,20 @@ def cmd_gl_report(args, config, token_mgr):
     currency = args.currency
     total_amt, _ = _compute_subtotal(section_idx, account_tree)
 
+    if args.by_customer and out_mode in ("json", "txns"):
+        err_print("Warning: --by-customer is only supported with text/expanded output. Ignoring -g flag.")
+
     if out_mode == "json":
 
         def tree_to_dict(node):
-            section = _find_gl_section(section_idx, node["name"])
+            section = _find_gl_section(section_idx, node["name"], node.get("id", ""))
             result = {"name": node["name"], "id": node["id"]}
             if not node["children"]:
                 result["amount"] = section.total_amount if section else 0.0
                 result["count"] = section.total_count if section else 0
                 txns = section.all_transactions if section else []
                 if txns:
-                    result["transactions"] = [
-                        {
-                            "date": t.date,
-                            "type": t.txn_type,
-                            "id": t.txn_id,
-                            "num": t.num,
-                            "customer": t.customer,
-                            "memo": t.memo,
-                            "account": t.account,
-                            "amount": t.amount,
-                        }
-                        for t in sorted(txns, key=lambda x: x.date)
-                    ]
+                    result["transactions"] = [_txn_to_dict(t) for t in sorted(txns, key=lambda x: x.date)]
             else:
                 result["direct_amount"] = section.direct_amount if section else 0.0
                 result["direct_count"] = section.direct_count if section else 0
@@ -1131,17 +1139,7 @@ def cmd_gl_report(args, config, token_mgr):
                 result["children"] = [tree_to_dict(c) for c in node["children"]]
                 if section and section.transactions:
                     result["transactions"] = [
-                        {
-                            "date": t.date,
-                            "type": t.txn_type,
-                            "id": t.txn_id,
-                            "num": t.num,
-                            "customer": t.customer,
-                            "memo": t.memo,
-                            "account": t.account,
-                            "amount": t.amount,
-                        }
-                        for t in sorted(section.transactions, key=lambda x: x.date)
+                        _txn_to_dict(t) for t in sorted(section.transactions, key=lambda x: x.date)
                     ]
             return result
 
@@ -1191,7 +1189,7 @@ def cmd_gl_report(args, config, token_mgr):
 
 def cmd_auth_init(args, config, token_mgr):
     """Interactive OAuth authorization flow."""
-    config.validate(need_tokens=False)
+    config.validate()
 
     oauth_state = os.urandom(16).hex()
     auth_params = urlencode(
@@ -1283,11 +1281,11 @@ def cmd_auth_status(args, config, token_mgr):
         "refresh_token_remaining_days": max(0, round((refresh_exp - now) / 86400, 1)),
         "last_refreshed": time.ctime(tokens.get("refreshed_at", 0)),
     }
-    output(info, args.format)
+    output(info, _resolve_fmt(args))
 
 
 def cmd_auth_refresh(args, config, token_mgr):
-    config.validate(need_tokens=False)
+    config.validate()
     token_mgr.load()
     token_mgr._locked_refresh(token_mgr._tokens)
     err_print("✓ Token refreshed successfully")
@@ -1364,6 +1362,16 @@ def _resolve_fmt(args) -> str:
 # ─── Entity Commands ─────────────────────────────────────────────────────────
 
 
+def _read_stdin_json() -> dict:
+    """Read and parse JSON from stdin, or die with helpful error."""
+    if sys.stdin.isatty():
+        die("Pipe JSON body via stdin. Example: echo '{...}' | qbo <command> <entity>")
+    try:
+        return json.load(sys.stdin)
+    except json.JSONDecodeError:
+        die("Invalid JSON on stdin.")
+
+
 def cmd_query(args, config, token_mgr):
     client = QBOClient(config, token_mgr)
     results = client.query(args.sql, max_pages=args.max_pages)
@@ -1377,24 +1385,14 @@ def cmd_get(args, config, token_mgr):
 
 
 def cmd_create(args, config, token_mgr):
-    if sys.stdin.isatty():
-        die("Pipe JSON body via stdin. Example: echo '{...}' | qbo create Invoice")
-    try:
-        body = json.load(sys.stdin)
-    except json.JSONDecodeError:
-        die("Invalid JSON on stdin.")
+    body = _read_stdin_json()
     client = QBOClient(config, token_mgr)
     result = client.create(args.entity, body)
     output(result, _resolve_fmt(args))
 
 
 def cmd_update(args, config, token_mgr):
-    if sys.stdin.isatty():
-        die("Pipe JSON body via stdin. Example: echo '{...}' | qbo update Customer")
-    try:
-        body = json.load(sys.stdin)
-    except json.JSONDecodeError:
-        die("Invalid JSON on stdin.")
+    body = _read_stdin_json()
     client = QBOClient(config, token_mgr)
     result = client.update(args.entity, body)
     output(result, _resolve_fmt(args))
@@ -1486,15 +1484,18 @@ def main():
     # ── create ──
     create_p = subs.add_parser("create", help="Create an entity (JSON on stdin)")
     create_p.add_argument("entity", help="Entity type")
+    create_p.add_argument("-o", "--output", choices=["text", "json", "tsv"], default=None, help=_FMT_HELP)
 
     # ── update ──
     update_p = subs.add_parser("update", help="Update an entity (JSON on stdin)")
     update_p.add_argument("entity", help="Entity type")
+    update_p.add_argument("-o", "--output", choices=["text", "json", "tsv"], default=None, help=_FMT_HELP)
 
     # ── delete ──
     delete_p = subs.add_parser("delete", help="Delete an entity by ID")
     delete_p.add_argument("entity", help="Entity type")
     delete_p.add_argument("id", help="Entity ID")
+    delete_p.add_argument("-o", "--output", choices=["text", "json", "tsv"], default=None, help=_FMT_HELP)
 
     # ── report ──
     report_p = subs.add_parser("report", help="Run a QBO report")
