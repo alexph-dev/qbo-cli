@@ -13,6 +13,7 @@ import argparse
 import fcntl
 import json
 import os
+import re
 import sys
 import time
 from collections import defaultdict
@@ -451,6 +452,18 @@ class QBOClient:
 
     def query(self, sql: str, max_pages: int = DEFAULT_MAX_PAGES) -> list:
         """Run QBO query with auto-pagination."""
+        def _extract_entities(data: dict) -> list:
+            qr = data.get("QueryResponse", {})
+            for key, val in qr.items():
+                if isinstance(val, list):
+                    return val
+            return []
+
+        # If user specifies MAXRESULTS or STARTPOSITION explicitly, honor it and skip auto-pagination
+        if re.search(r"\bMAXRESULTS\b", sql, re.IGNORECASE) or re.search(r"\bSTARTPOSITION\b", sql, re.IGNORECASE):
+            data = self.request("GET", "query", params={"query": sql})
+            return _extract_entities(data)
+
         all_results = []
         start = 1
 
@@ -458,13 +471,7 @@ class QBOClient:
             paginated_sql = f"{sql} STARTPOSITION {start} MAXRESULTS {MAX_RESULTS}"
             data = self.request("GET", "query", params={"query": paginated_sql})
 
-            qr = data.get("QueryResponse", {})
-            entities = []
-            for key, val in qr.items():
-                if isinstance(val, list):
-                    entities = val
-                    break
-
+            entities = _extract_entities(data)
             all_results.extend(entities)
 
             if len(entities) < MAX_RESULTS:
