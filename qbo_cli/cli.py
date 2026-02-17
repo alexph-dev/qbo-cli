@@ -716,10 +716,10 @@ def cmd_gl_report(args, config, token_mgr):
             _list_all_accounts(client)
         return
 
-    # Resolve customer
-    if not args.customer:
-        die("Customer is required. Use -c/--customer or --list-accounts to explore.")
-    cust_id, cust_name = _resolve_customer(client, args.customer)
+    # Resolve customer (optional)
+    cust_id, cust_name = None, None
+    if args.customer:
+        cust_id, cust_name = _resolve_customer(client, args.customer)
 
     # Resolve dates
     end_date = args.end or dt.now().strftime("%Y-%m-%d")
@@ -737,8 +737,9 @@ def cmd_gl_report(args, config, token_mgr):
         "start_date": start_date,
         "end_date": end_date,
         "accounting_method": args.method,
-        "customer": cust_id,
     }
+    if cust_id:
+        params["customer"] = cust_id
     gl_data = client.report("GeneralLedger", params)
 
     # Check for no data
@@ -775,23 +776,27 @@ def cmd_gl_report(args, config, token_mgr):
                 result["children"] = [tree_to_dict(c) for c in node["children"]]
             return result
 
-        output({
-            "customer": cust_name,
-            "customer_id": cust_id,
+        report_data = {
             "start_date": display_start,
             "end_date": end_date,
             "method": args.method,
             "account": tree_to_dict(account_tree),
             "total": total_amt,
-        })
+        }
+        if cust_name:
+            report_data["customer"] = cust_name
+            report_data["customer_id"] = cust_id
+
+        output(report_data)
     else:
         # Text report
         date_range = _format_date_range(display_start, end_date)
         total_amt, _ = _compute_subtotal(gl_sections, account_tree)
         currency = args.currency
 
+        title = f"General Ledger Report - {cust_name}" if cust_name else "General Ledger Report"
         lines = [
-            f"General Ledger Report - {cust_name}",
+            title,
             date_range,
             "",
         ]
