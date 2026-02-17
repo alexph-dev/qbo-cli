@@ -780,14 +780,36 @@ def _format_amount(amount: float, currency: str = "") -> str:
     return f"{prefix}{amount:,.2f}"
 
 
+def _is_month_start(d: datetime) -> bool:
+    return d.day == 1
+
+def _is_month_end(d: datetime) -> bool:
+    import calendar
+    return d.day == calendar.monthrange(d.year, d.month)[1]
+
 def _format_date_range(start: str, end: str) -> str:
     s = datetime.strptime(start, "%Y-%m-%d")
     e = datetime.strptime(end, "%Y-%m-%d")
+    s_clean = _is_month_start(s)
+    e_clean = _is_month_end(e)
+
     if s.month == e.month and s.year == e.year:
-        return f"{s.strftime('%B')}, {s.year}"
+        if s_clean and e_clean:
+            return f"{s.strftime('%B')}, {s.year}"
+        elif s_clean:
+            return f"{s.strftime('%B')} 1-{e.day}, {s.year}"
+        elif e_clean:
+            return f"{s.strftime('%B')} {s.day}-{e.day}, {s.year}"
+        else:
+            return f"{s.strftime('%B')} {s.day}-{e.day}, {s.year}"
     elif s.year == e.year:
-        return f"{s.strftime('%B')}-{e.strftime('%B')}, {s.year}"
-    return f"{s.strftime('%B %Y')}-{e.strftime('%B %Y')}"
+        s_fmt = s.strftime('%B') if s_clean else f"{s.strftime('%B')} {s.day}"
+        e_fmt = e.strftime('%B') if e_clean else f"{e.strftime('%B')} {e.day}"
+        return f"{s_fmt}-{e_fmt}, {s.year}"
+    else:
+        s_fmt = s.strftime('%B %Y') if s_clean else f"{s.day} {s.strftime('%B %Y')}"
+        e_fmt = e.strftime('%B %Y') if e_clean else f"{e.day} {e.strftime('%B %Y')}"
+        return f"{s_fmt}-{e_fmt}"
 
 
 def _pad_line(label: str, amt_str: str, prefix: str = "") -> str:
