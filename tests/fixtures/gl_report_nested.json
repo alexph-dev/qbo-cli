@@ -1,0 +1,228 @@
+{
+  "Header": {
+    "ReportName": "GeneralLedger",
+    "Option": [
+      {"Name": "AccountingMethod", "Value": "Cash"},
+      {"Name": "NoReportData", "Value": "false"}
+    ],
+    "DateMacro": "Custom",
+    "StartPeriod": "2025-01-01",
+    "EndPeriod": "2025-06-30",
+    "Currency": "USD"
+  },
+  "Columns": {
+    "Column": [
+      {"ColTitle": "Date", "ColType": "tx_date"},
+      {"ColTitle": "Transaction Type", "ColType": "txn_type"},
+      {"ColTitle": "Num", "ColType": "doc_num"},
+      {"ColTitle": "Name", "ColType": "name"},
+      {"ColTitle": "Memo/Description", "ColType": "memo"},
+      {"ColTitle": "Split", "ColType": "split_acc"},
+      {"ColTitle": "Amount", "ColType": "subt_nat_amount"}
+    ]
+  },
+  "Rows": {
+    "Row": [
+      {
+        "type": "Section",
+        "Header": {
+          "ColData": [
+            {"value": "Revenue", "id": "100"},
+            {"value": ""},
+            {"value": ""},
+            {"value": ""},
+            {"value": ""},
+            {"value": ""},
+            {"value": ""}
+          ]
+        },
+        "Rows": {
+          "Row": [
+            {
+              "type": "Section",
+              "Header": {
+                "ColData": [
+                  {"value": "Consulting Revenue", "id": "101"},
+                  {"value": ""},
+                  {"value": ""},
+                  {"value": ""},
+                  {"value": ""},
+                  {"value": ""},
+                  {"value": ""}
+                ]
+              },
+              "Rows": {
+                "Row": [
+                  {
+                    "type": "Data",
+                    "ColData": [
+                      {"value": "2025-01-15"},
+                      {"value": "Invoice", "id": "5001"},
+                      {"value": "1001"},
+                      {"value": "Acme Corp"},
+                      {"value": "Consulting services January"},
+                      {"value": "Accounts Receivable"},
+                      {"value": "5000.00"}
+                    ]
+                  },
+                  {
+                    "type": "Data",
+                    "ColData": [
+                      {"value": "2025-02-10"},
+                      {"value": "Invoice", "id": "5002"},
+                      {"value": "1002"},
+                      {"value": "Acme Corp"},
+                      {"value": "Consulting services February"},
+                      {"value": "Accounts Receivable"},
+                      {"value": "7500.00"}
+                    ]
+                  },
+                  {
+                    "type": "Data",
+                    "ColData": [
+                      {"value": "2025-03-20"},
+                      {"value": "Invoice", "id": "5003"},
+                      {"value": "1003"},
+                      {"value": "Beta LLC"},
+                      {"value": "Project Alpha consulting"},
+                      {"value": "Accounts Receivable"},
+                      {"value": "3200.00"}
+                    ]
+                  }
+                ]
+              },
+              "Summary": {
+                "ColData": [
+                  {"value": "Total for Consulting Revenue"},
+                  {"value": ""},
+                  {"value": ""},
+                  {"value": ""},
+                  {"value": ""},
+                  {"value": ""},
+                  {"value": "15700.00"}
+                ]
+              }
+            },
+            {
+              "type": "Section",
+              "Header": {
+                "ColData": [
+                  {"value": "Product Revenue", "id": "102"},
+                  {"value": ""},
+                  {"value": ""},
+                  {"value": ""},
+                  {"value": ""},
+                  {"value": ""},
+                  {"value": ""}
+                ]
+              },
+              "Rows": {
+                "Row": [
+                  {
+                    "type": "Data",
+                    "ColData": [
+                      {"value": "2025-04-05"},
+                      {"value": "Sales Receipt", "id": "5004"},
+                      {"value": "SR-001"},
+                      {"value": "Gamma Inc"},
+                      {"value": "Software license"},
+                      {"value": "Undeposited Funds"},
+                      {"value": "12000.00"}
+                    ]
+                  }
+                ]
+              },
+              "Summary": {
+                "ColData": [
+                  {"value": "Total for Product Revenue"},
+                  {"value": ""},
+                  {"value": ""},
+                  {"value": ""},
+                  {"value": ""},
+                  {"value": ""},
+                  {"value": "12000.00"}
+                ]
+              }
+            },
+            {
+              "type": "Data",
+              "ColData": [
+                {"value": "2025-06-01"},
+                {"value": "Journal Entry", "id": "5005"},
+                {"value": "JE-100"},
+                {"value": ""},
+                {"value": "Revenue adjustment"},
+                {"value": "Adjustments"},
+                {"value": "-500.00"}
+              ]
+            }
+          ]
+        },
+        "Summary": {
+          "ColData": [
+            {"value": "Total for Revenue"},
+            {"value": ""},
+            {"value": ""},
+            {"value": ""},
+            {"value": ""},
+            {"value": ""},
+            {"value": "27200.00"}
+          ]
+        }
+      },
+      {
+        "type": "Section",
+        "Header": {
+          "ColData": [
+            {"value": "Expenses", "id": "200"},
+            {"value": ""},
+            {"value": ""},
+            {"value": ""},
+            {"value": ""},
+            {"value": ""},
+            {"value": ""}
+          ]
+        },
+        "Rows": {
+          "Row": [
+            {
+              "type": "Data",
+              "ColData": [
+                {"value": "2025-01-31"},
+                {"value": "Bill", "id": "6001"},
+                {"value": "B-001"},
+                {"value": "Office Supplies Co"},
+                {"value": "Office supplies"},
+                {"value": "Accounts Payable"},
+                {"value": "250.00"}
+              ]
+            },
+            {
+              "type": "Data",
+              "ColData": [
+                {"value": "2025-05-15"},
+                {"value": "Check", "id": "6002"},
+                {"value": "1234"},
+                {"value": "Internet Provider"},
+                {"value": "Monthly internet"},
+                {"value": "Checking"},
+                {"value": "89.99"}
+              ]
+            }
+          ]
+        },
+        "Summary": {
+          "ColData": [
+            {"value": "Total for Expenses"},
+            {"value": ""},
+            {"value": ""},
+            {"value": ""},
+            {"value": ""},
+            {"value": ""},
+            {"value": "339.99"}
+          ]
+        }
+      }
+    ]
+  }
+}

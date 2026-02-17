@@ -1,0 +1,40 @@
+[
+  {
+    "Id": "1",
+    "DisplayName": "Acme Corp",
+    "FullyQualifiedName": "Acme Corp",
+    "PrimaryEmailAddr": {"Address": "billing@acme.com"},
+    "Balance": 5000.00,
+    "Active": true
+  },
+  {
+    "Id": "2",
+    "DisplayName": "Beta LLC",
+    "FullyQualifiedName": "Beta LLC",
+    "PrimaryEmailAddr": {"Address": "info@beta.com"},
+    "Balance": 3200.00,
+    "Active": true
+  },
+  {
+    "Id": "3",
+    "DisplayName": "Gamma Inc",
+    "FullyQualifiedName": "Gamma Inc",
+    "PrimaryEmailAddr": {"Address": "ap@gamma.com"},
+    "Balance": 0.00,
+    "Active": true
+  },
+  {
+    "Id": "4",
+    "DisplayName": "O'Brien & Sons",
+    "FullyQualifiedName": "O'Brien & Sons",
+    "Balance": 1500.00,
+    "Active": false
+  },
+  {
+    "Id": "5",
+    "DisplayName": "Delta Partners",
+    "FullyQualifiedName": "Delta Partners",
+    "Balance": 0.00,
+    "Active": true
+  }
+]
