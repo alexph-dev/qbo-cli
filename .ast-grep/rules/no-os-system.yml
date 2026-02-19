@@ -1,0 +1,6 @@
+id: no-os-system
+language: python
+severity: error
+message: "os.system() is unsafe — use subprocess.run() instead"
+rule:
+  pattern: os.system($$$)

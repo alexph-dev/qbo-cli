@@ -1,0 +1,6 @@
+id: no-shell-true
+language: python
+severity: error
+message: "shell=True is a command injection risk — pass args as a list"
+rule:
+  pattern: subprocess.run($$$, shell=True, $$$)

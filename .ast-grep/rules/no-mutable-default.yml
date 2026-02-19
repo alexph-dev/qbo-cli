@@ -1,0 +1,6 @@
+id: no-mutable-default-list
+language: python
+severity: warning
+message: "Mutable default argument — use None and assign inside function"
+rule:
+  pattern: "def $F($$$, $ARG=[], $$$): $$$"

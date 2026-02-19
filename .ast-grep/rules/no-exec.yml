@@ -1,0 +1,6 @@
+id: no-exec
+language: python
+severity: error
+message: "exec() is a security risk — refactor to avoid dynamic code execution"
+rule:
+  pattern: exec($$$)
