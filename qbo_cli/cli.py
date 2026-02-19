@@ -1550,7 +1550,7 @@ def main():
     gl_p.add_argument(
         "-a", "--account", default=None, help="Top-level account ID or name (auto-discovers sub-accounts)"
     )
-    gl_p.add_argument("--start", default=None, help="Start date YYYY-MM-DD or DD.MM.YYYY (default: first transaction)")
+    gl_p.add_argument("-b", "--begin", "--start", default=None, dest="start", help="Start date YYYY-MM-DD or DD.MM.YYYY (default: first transaction)")
     gl_p.add_argument("-e", "--end", default=None, help="End date YYYY-MM-DD or DD.MM.YYYY (default: today)")
     gl_p.add_argument("--method", default="Cash", choices=["Cash", "Accrual"], help="Accounting method (default: Cash)")
     gl_p.add_argument("--currency", default="", help="Currency prefix for display (e.g. THB, USD, €)")
