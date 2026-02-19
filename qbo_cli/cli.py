@@ -817,6 +817,28 @@ def _format_amount(amount: float, currency: str = "") -> str:
     return f"{prefix}{amount:,.2f}"
 
 
+def _parse_date(value: str) -> str:
+    """Parse flexible date input → YYYY-MM-DD string.
+
+    Accepts: YYYY-MM-DD, DD.MM.YYYY, DD/MM/YYYY, MM/DD/YYYY (if unambiguous).
+    """
+    value = value.strip()
+    # Already ISO
+    if re.match(r"^\d{4}-\d{2}-\d{2}$", value):
+        datetime.strptime(value, "%Y-%m-%d")  # validate
+        return value
+    # DD.MM.YYYY or DD/MM/YYYY
+    for sep, fmt in [(".", "%d.%m.%Y"), ("/", "%d/%m/%Y")]:
+        if sep in value:
+            try:
+                dt = datetime.strptime(value, fmt)
+                return dt.strftime("%Y-%m-%d")
+            except ValueError:
+                pass
+    die(f"Cannot parse date '{value}'. Use YYYY-MM-DD or DD.MM.YYYY.")
+    return ""  # unreachable
+
+
 def _is_month_start(d: datetime) -> bool:
     return d.day == 1
 
@@ -1070,8 +1092,8 @@ def cmd_gl_report(args, config, token_mgr):
         cust_id, cust_name = _resolve_customer(client, args.customer)
 
     # Resolve dates
-    end_date = args.end or datetime.now().strftime("%Y-%m-%d")
-    start_date = args.start or "2000-01-01"
+    end_date = _parse_date(args.end) if args.end else datetime.now().strftime("%Y-%m-%d")
+    start_date = _parse_date(args.start) if args.start else "2000-01-01"
     auto_start = args.start is None
 
     # Resolve account tree
@@ -1408,9 +1430,9 @@ def cmd_report(args, config, token_mgr):
     client = QBOClient(config, token_mgr)
     params = {}
     if args.start_date:
-        params["start_date"] = args.start_date
+        params["start_date"] = _parse_date(args.start_date)
     if args.end_date:
-        params["end_date"] = args.end_date
+        params["end_date"] = _parse_date(args.end_date)
     if args.date_macro:
         params["date_macro"] = args.date_macro
     if args.params:
@@ -1528,8 +1550,8 @@ def main():
     gl_p.add_argument(
         "-a", "--account", default=None, help="Top-level account ID or name (auto-discovers sub-accounts)"
     )
-    gl_p.add_argument("--start", default=None, help="Start date YYYY-MM-DD (default: first transaction)")
-    gl_p.add_argument("--end", default=None, help="End date YYYY-MM-DD (default: today)")
+    gl_p.add_argument("--start", default=None, help="Start date YYYY-MM-DD or DD.MM.YYYY (default: first transaction)")
+    gl_p.add_argument("-e", "--end", default=None, help="End date YYYY-MM-DD or DD.MM.YYYY (default: today)")
     gl_p.add_argument("--method", default="Cash", choices=["Cash", "Accrual"], help="Accounting method (default: Cash)")
     gl_p.add_argument("--currency", default="", help="Currency prefix for display (e.g. THB, USD, €)")
     gl_p.add_argument(
