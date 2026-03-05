@@ -8,11 +8,13 @@ Built for QuickBooks automation — giving AI agents (like [OpenClaw](https://op
 
 - **OAuth 2.0 authentication** with local callback server or manual mode
 - **Query** entities using QBO's SQL-like syntax with automatic pagination
+- **Local text search** over query results (useful for fields not queryable server-side)
 - **CRUD operations** on any QBO entity (Customer, Invoice, Bill, etc.)
 - **Financial reports** — P&L, Balance Sheet, Cash Flow, and more
 - **Raw API access** for anything the CLI doesn't cover
 - **Auto token refresh** — access tokens refresh transparently
 - **TSV and JSON output** — pipe to `jq`, `awk`, spreadsheets
+- **Flexible output flags** — use global `-f/--format` or subcommand `--format/-o`
 - **Sandbox support** for development and testing
 - **File-locked token storage** — safe for concurrent use
 
@@ -107,6 +109,21 @@ qbo query "SELECT DisplayName, Balance FROM Customer WHERE Balance > '0'" -f tsv
 ```
 
 Queries automatically paginate through all results (up to 100 pages × 1000 rows).
+
+### Search text in query results (local filter)
+
+Some QBO fields are hard or impossible to filter server-side. Use `search` to run a normal QBO query, then filter returned rows locally by substring match against each row's JSON.
+
+```bash
+# Find invoices containing text in any field (including nested line descriptions/memos)
+qbo search "SELECT * FROM Invoice WHERE TxnDate >= '2025-01-01'" "consulting fee"
+
+# Case-sensitive search
+qbo search "SELECT * FROM Invoice" "Owner Memo" --case-sensitive
+
+# JSON output
+qbo search "SELECT * FROM Invoice" "memo" --format json
+```
 
 ### Get a single entity
 
@@ -209,6 +226,7 @@ qbo query "SELECT * FROM Customer"
 
 # JSON
 qbo query "SELECT * FROM Customer" -f json
+qbo query "SELECT * FROM Customer" --format json
 
 # TSV (tab-separated, for spreadsheets/awk)
 qbo query "SELECT * FROM Customer" -f tsv

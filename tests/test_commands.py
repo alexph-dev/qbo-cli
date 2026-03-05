@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import sys
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -11,8 +12,10 @@ from qbo_cli.cli import (
     QBOClient,
     cmd_create,
     cmd_query,
+    cmd_search,
     cmd_report,
     cmd_update,
+    main,
     _resolve_fmt,
 )
 from tests.conftest import make_args
@@ -65,6 +68,55 @@ class TestCmdQuery:
         captured = capsys.readouterr().out
         assert "Acme" in captured
         assert "(1 rows)" in captured
+
+
+# ─── cmd_search ───────────────────────────────────────────────────────────────
+
+
+class TestCmdSearch:
+    def test_search_filters_nested_json_case_insensitive(self, fake_config, fake_token_mgr, capsys):
+        client = QBOClient(fake_config, fake_token_mgr)
+        client.query = MagicMock(
+            return_value=[
+                {"Id": "1", "PrivateNote": "Owner Memo", "Line": [{"Description": "Move-in fee"}]},
+                {"Id": "2", "PrivateNote": "Misc", "Line": [{"Description": "Monthly Service"}]},
+            ]
+        )
+        args = make_args(
+            command="search",
+            sql="SELECT * FROM Invoice",
+            text="monthly service",
+            case_sensitive=False,
+            max_pages=7,
+            output="json",
+            format="text",
+        )
+
+        with patch("qbo_cli.cli.QBOClient", return_value=client):
+            cmd_search(args, fake_config, fake_token_mgr)
+
+        client.query.assert_called_once_with("SELECT * FROM Invoice", max_pages=7)
+        data = json.loads(capsys.readouterr().out)
+        assert [row["Id"] for row in data] == ["2"]
+
+    def test_search_case_sensitive_flag(self, fake_config, fake_token_mgr, capsys):
+        client = QBOClient(fake_config, fake_token_mgr)
+        client.query = MagicMock(return_value=[{"Id": "1", "PrivateNote": "Owner Memo"}])
+        args = make_args(
+            command="search",
+            sql="SELECT * FROM Invoice",
+            text="owner memo",
+            case_sensitive=True,
+            max_pages=100,
+            output="json",
+            format="text",
+        )
+
+        with patch("qbo_cli.cli.QBOClient", return_value=client):
+            cmd_search(args, fake_config, fake_token_mgr)
+
+        data = json.loads(capsys.readouterr().out)
+        assert data == []
 
 
 # ─── cmd_report ───────────────────────────────────────────────────────────────
@@ -184,3 +236,44 @@ class TestResolveFmt:
 
         args = Namespace(format="text")
         assert _resolve_fmt(args) == "text"
+
+
+# ─── main parser: subcommand --format alias ──────────────────────────────────
+
+
+class TestSubcommandFormatAlias:
+    @pytest.mark.parametrize(
+        ("argv", "handler_name"),
+        [
+            (["qbo", "query", "SELECT Id FROM Customer", "--format", "json"], "cmd_query"),
+            (["qbo", "get", "Customer", "1", "--format", "json"], "cmd_get"),
+            (["qbo", "create", "Customer", "--format", "json"], "cmd_create"),
+            (["qbo", "update", "Customer", "--format", "json"], "cmd_update"),
+            (["qbo", "delete", "Customer", "1", "--format", "json"], "cmd_delete"),
+            (["qbo", "report", "ProfitAndLoss", "--format", "json"], "cmd_report"),
+            (["qbo", "raw", "GET", "companyinfo/1", "--format", "json"], "cmd_raw"),
+        ],
+    )
+    def test_format_alias_after_subcommand_maps_to_output(self, argv, handler_name):
+        fake_config = MagicMock()
+        fake_config.validate = MagicMock()
+        fake_config.sandbox = False
+        fake_token_mgr = MagicMock()
+        captured = {}
+
+        def _capture(args, config, token_mgr):
+            captured["args"] = args
+            captured["config"] = config
+            captured["token_mgr"] = token_mgr
+
+        with (
+            patch("qbo_cli.cli.Config", return_value=fake_config),
+            patch("qbo_cli.cli.TokenManager", return_value=fake_token_mgr),
+            patch(f"qbo_cli.cli.{handler_name}", side_effect=_capture) as mock_handler,
+            patch.object(sys, "argv", argv),
+        ):
+            main()
+
+        mock_handler.assert_called_once()
+        fake_config.validate.assert_called_once()
+        assert captured["args"].output == "json"

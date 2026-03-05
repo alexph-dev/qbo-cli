@@ -991,7 +991,7 @@ def _build_by_customer_report(
     """Group all transactions by customer and show per-customer subtotals.
 
     customer_filter: if set, group at depth=1 below this customer prefix
-                     (e.g. "PM" groups PM:B:B-BV1 → PM:B, skips PM itself)
+                     (e.g. "Parent" groups Parent:Team:Leaf → Parent:Team, skips Parent itself)
     sort_by: "alpha" (alphabetical) or "amount" (absolute total descending)
     """
 
@@ -1018,7 +1018,7 @@ def _build_by_customer_report(
                 skipped_parent_txns.append(t)
                 continue
             if cust.startswith(prefix):
-                # Extract first child level: PM:B:B-BV1 → PM:B
+                # Extract first child level: Parent:Team:Leaf → Parent:Team
                 remainder = cust[len(prefix) :]
                 first_child = remainder.split(":")[0]
                 group_key = prefix + first_child
@@ -1400,6 +1400,19 @@ def cmd_query(args, config, token_mgr):
     output(results, _resolve_fmt(args))
 
 
+def cmd_search(args, config, token_mgr):
+    client = QBOClient(config, token_mgr)
+    results = client.query(args.sql, max_pages=args.max_pages)
+
+    if args.case_sensitive:
+        matches = [row for row in results if args.text in json.dumps(row, default=str, ensure_ascii=False)]
+    else:
+        needle = args.text.casefold()
+        matches = [row for row in results if needle in json.dumps(row, default=str, ensure_ascii=False).casefold()]
+
+    output(matches, _resolve_fmt(args))
+
+
 def cmd_get(args, config, token_mgr):
     client = QBOClient(config, token_mgr)
     result = client.get(args.entity, args.id)
@@ -1495,29 +1508,51 @@ def main():
     query_p.add_argument(
         "--max-pages", type=int, default=DEFAULT_MAX_PAGES, help=f"Max pagination pages (default: {DEFAULT_MAX_PAGES})"
     )
-    query_p.add_argument("-o", "--output", choices=["text", "json", "tsv"], default=None, help=_FMT_HELP)
+    query_p.add_argument(
+        "-o", "--output", "--format", dest="output", choices=["text", "json", "tsv"], default=None, help=_FMT_HELP
+    )
+
+    # ── search ──
+    search_p = subs.add_parser("search", help="Run query, then text-search rows locally")
+    search_p.add_argument("sql", help='QBO query, e.g. "SELECT * FROM Customer"')
+    search_p.add_argument("text", help="Search text (substring match against each row JSON)")
+    search_p.add_argument(
+        "--max-pages", type=int, default=DEFAULT_MAX_PAGES, help=f"Max pagination pages (default: {DEFAULT_MAX_PAGES})"
+    )
+    search_p.add_argument("--case-sensitive", action="store_true", help="Use case-sensitive matching")
+    search_p.add_argument(
+        "-o", "--output", "--format", dest="output", choices=["text", "json", "tsv"], default=None, help=_FMT_HELP
+    )
 
     # ── get ──
     get_p = subs.add_parser("get", help="Get a single entity by ID")
     get_p.add_argument("entity", help="Entity type (Invoice, Customer, etc.)")
     get_p.add_argument("id", help="Entity ID")
-    get_p.add_argument("-o", "--output", choices=["text", "json", "tsv"], default=None, help=_FMT_HELP)
+    get_p.add_argument(
+        "-o", "--output", "--format", dest="output", choices=["text", "json", "tsv"], default=None, help=_FMT_HELP
+    )
 
     # ── create ──
     create_p = subs.add_parser("create", help="Create an entity (JSON on stdin)")
     create_p.add_argument("entity", help="Entity type")
-    create_p.add_argument("-o", "--output", choices=["text", "json", "tsv"], default=None, help=_FMT_HELP)
+    create_p.add_argument(
+        "-o", "--output", "--format", dest="output", choices=["text", "json", "tsv"], default=None, help=_FMT_HELP
+    )
 
     # ── update ──
     update_p = subs.add_parser("update", help="Update an entity (JSON on stdin)")
     update_p.add_argument("entity", help="Entity type")
-    update_p.add_argument("-o", "--output", choices=["text", "json", "tsv"], default=None, help=_FMT_HELP)
+    update_p.add_argument(
+        "-o", "--output", "--format", dest="output", choices=["text", "json", "tsv"], default=None, help=_FMT_HELP
+    )
 
     # ── delete ──
     delete_p = subs.add_parser("delete", help="Delete an entity by ID")
     delete_p.add_argument("entity", help="Entity type")
     delete_p.add_argument("id", help="Entity ID")
-    delete_p.add_argument("-o", "--output", choices=["text", "json", "tsv"], default=None, help=_FMT_HELP)
+    delete_p.add_argument(
+        "-o", "--output", "--format", dest="output", choices=["text", "json", "tsv"], default=None, help=_FMT_HELP
+    )
 
     # ── report ──
     report_p = subs.add_parser("report", help="Run a QBO report")
@@ -1526,13 +1561,17 @@ def main():
     report_p.add_argument("--end-date", help="End date (YYYY-MM-DD)")
     report_p.add_argument("--date-macro", help='Date macro (e.g. "Last Month", "This Year")')
     report_p.add_argument("params", nargs="*", help="Extra params as key=value")
-    report_p.add_argument("-o", "--output", choices=["text", "json", "tsv"], default=None, help=_FMT_HELP)
+    report_p.add_argument(
+        "-o", "--output", "--format", dest="output", choices=["text", "json", "tsv"], default=None, help=_FMT_HELP
+    )
 
     # ── raw ──
     raw_p = subs.add_parser("raw", help="Make a raw API request")
     raw_p.add_argument("method", help="HTTP method (GET, POST, PUT, DELETE)")
     raw_p.add_argument("path", help="API path after /v3/company/{realm}/")
-    raw_p.add_argument("-o", "--output", choices=["text", "json", "tsv"], default=None, help=_FMT_HELP)
+    raw_p.add_argument(
+        "-o", "--output", "--format", dest="output", choices=["text", "json", "tsv"], default=None, help=_FMT_HELP
+    )
 
     # ── gl-report ──
     gl_p = subs.add_parser(
@@ -1602,6 +1641,9 @@ def main():
     elif args.command == "query":
         config.validate()
         cmd_query(args, config, token_mgr)
+    elif args.command == "search":
+        config.validate()
+        cmd_search(args, config, token_mgr)
     elif args.command == "get":
         config.validate()
         cmd_get(args, config, token_mgr)
