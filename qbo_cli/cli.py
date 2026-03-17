@@ -24,6 +24,7 @@ from collections import defaultdict
 from datetime import datetime
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
+from typing import NoReturn
 from urllib.parse import parse_qs, urlencode, urlparse
 
 import requests
@@ -46,6 +47,9 @@ MAX_RESULTS = 1000  # QBO max per page
 DEFAULT_MAX_PAGES = 100  # safety cap
 MINOR_VERSION = 75  # QBO API minor version
 REFRESH_EXPIRY_WARN_DAYS = 14  # warn when refresh token < this many days left
+OUTPUT_FORMATS = ("text", "json", "tsv")
+GL_OUTPUT_FORMATS = ("text", "json", "txns", "expanded")
+FMT_HELP = "Output format: text (default), json, tsv"
 
 
 # ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -58,17 +62,51 @@ def _qbo_escape(value: str) -> str:
     return value.replace("'", "''").replace("%", "")
 
 
-def die(msg: str, code: int = 1):
+def die(msg: str, code: int = 1) -> NoReturn:
     """Print to stderr and exit."""
     print(f"Error: {msg}", file=sys.stderr)
     sys.exit(code)
 
 
-def err_print(msg: str):
+def err_print(msg: str) -> None:
     print(msg, file=sys.stderr)
 
 
-def output(data, fmt: str = "text"):
+def _unwrap_entity_dict(data: dict) -> dict:
+    """Unwrap entity payloads like {'Customer': {...}} to the inner object."""
+    keys = list(data.keys())
+    if len(keys) == 1 and isinstance(data[keys[0]], dict):
+        return data[keys[0]]
+    return data
+
+
+def _first_list_value(data: dict) -> list | None:
+    """Return the first list value in a dict, if present."""
+    for value in data.values():
+        if isinstance(value, list):
+            return value
+    return None
+
+
+def _normalize_output_data(data, *, unwrap_entity: bool = False, extract_list: bool = False):
+    """Apply shared output normalization for dict-based QBO responses."""
+    if not isinstance(data, dict):
+        return data
+
+    normalized = _unwrap_entity_dict(data) if unwrap_entity else data
+    if extract_list:
+        list_value = _first_list_value(normalized)
+        if list_value is not None:
+            return list_value
+    return normalized
+
+
+def _has_nested_dict_list(data: dict) -> bool:
+    """Return True when a dict contains at least one list of dicts."""
+    return any(isinstance(v, list) and v and isinstance(v[0], dict) for v in data.values())
+
+
+def output(data, fmt: str = "text") -> None:
     """Write result to stdout."""
     if fmt == "tsv":
         output_tsv(data)
@@ -79,27 +117,16 @@ def output(data, fmt: str = "text"):
         print()
 
 
-def output_text(data):
+def output_text(data) -> None:
     """Human-readable table output."""
-    # Unwrap QBO entity response like {"Customer": {...}}
+    data = _normalize_output_data(data, unwrap_entity=True)
     if isinstance(data, dict):
-        # Single entity response — check for entity wrapper
-        keys = list(data.keys())
-        if len(keys) == 1 and isinstance(data[keys[0]], dict):
-            data = data[keys[0]]
-
-        # If still a single dict (not a list), show as key-value pairs
-        has_nested_list = any(isinstance(v, list) and v and isinstance(v[0], dict) for v in data.values())
-        if isinstance(data, dict) and not has_nested_list:
+        if not _has_nested_dict_list(data):
             _output_kv(data)
             return
 
-        # Try to extract a list from the dict
-        for v in data.values():
-            if isinstance(v, list):
-                data = v
-                break
-        else:
+        data = _normalize_output_data(data, extract_list=True)
+        if isinstance(data, dict):
             _output_kv(data)
             return
 
@@ -141,7 +168,7 @@ def output_text(data):
     print(f"\n({len(data)} rows)")
 
 
-def _output_kv(data: dict, indent: int = 0):
+def _output_kv(data: dict, indent: int = 0) -> None:
     """Pretty-print a single entity as key-value pairs."""
     prefix = "  " * indent
     # Find max key length for alignment
@@ -175,15 +202,11 @@ def _truncate(s: str, maxlen: int) -> str:
     return s[: maxlen - 1] + "…" if len(s) > maxlen else s
 
 
-def output_tsv(data):
+def output_tsv(data) -> None:
     """Flatten list-of-dicts to TSV."""
+    data = _normalize_output_data(data, extract_list=True)
     if isinstance(data, dict):
-        for v in data.values():
-            if isinstance(v, list):
-                data = v
-                break
-        else:
-            data = [data]
+        data = [data]
     if not data:
         return
     if isinstance(data, list) and data and isinstance(data[0], dict):
@@ -254,10 +277,11 @@ class TokenManager:
         if not TOKENS_PATH.exists():
             die("No tokens found. Run: qbo auth init")
         try:
-            self._tokens = json.loads(TOKENS_PATH.read_text())
+            tokens = json.loads(TOKENS_PATH.read_text())
         except json.JSONDecodeError:
             die("Token file corrupted. Delete ~/.qbo/tokens.json and re-run: qbo auth init")
-        return self._tokens
+        self._tokens = tokens
+        return tokens
 
     def save(self, tokens: dict):
         """Atomic write: temp file → rename. Permissions set before rename."""
@@ -418,7 +442,14 @@ class QBOClient:
         base = SANDBOX_BASE if self.config.sandbox else PROD_BASE
         return f"{base}/{realm}"
 
-    def request(self, method: str, path: str, params: dict = None, json_body: dict = None, raw_response: bool = False):
+    def request(
+        self,
+        method: str,
+        path: str,
+        params: dict | None = None,
+        json_body: dict | None = None,
+        raw_response: bool = False,
+    ):
         """Make API request with auto-refresh and 401 retry."""
         token = self.token_mgr.get_valid_token()
         url = f"{self._base_url()}/{path}"
@@ -514,10 +545,10 @@ class QBOClient:
         entity_data = current.get(entity, current)
         return self.request("POST", entity.lower(), params={"operation": "delete"}, json_body=entity_data)
 
-    def report(self, report_type: str, params: dict = None) -> dict:
+    def report(self, report_type: str, params: dict | None = None) -> dict:
         return self.request("GET", f"reports/{report_type}", params=params)
 
-    def raw(self, method: str, path: str, body: dict = None) -> dict:
+    def raw(self, method: str, path: str, body: dict | None = None) -> dict:
         return self.request(method.upper(), path, json_body=body)
 
 
@@ -593,7 +624,7 @@ def _parse_txn_from_row(cols: list[dict]) -> GLTransaction | None:
 
 def _parse_gl_rows(rows_obj: dict) -> list[GLSection]:
     """Parse GL Rows object into list of GLSection."""
-    sections = []
+    sections: list[GLSection] = []
     if not rows_obj or "Row" not in rows_obj:
         return sections
 
@@ -1384,63 +1415,38 @@ def _resolve_fmt(args) -> str:
 # ─── Entity Commands ─────────────────────────────────────────────────────────
 
 
-def _read_stdin_json() -> dict:
-    """Read and parse JSON from stdin, or die with helpful error."""
+def _make_client(config, token_mgr) -> QBOClient:
+    """Build a client for command handlers."""
+    return QBOClient(config, token_mgr)
+
+
+def _emit_result(result, args) -> None:
+    """Emit command output using the resolved format."""
+    output(result, _resolve_fmt(args))
+
+
+def _read_optional_stdin_json() -> dict | None:
+    """Read JSON from stdin when present, otherwise return None."""
     if sys.stdin.isatty():
-        die("Pipe JSON body via stdin. Example: echo '{...}' | qbo <command> <entity>")
+        return None
     try:
         return json.load(sys.stdin)
     except json.JSONDecodeError:
         die("Invalid JSON on stdin.")
 
 
-def cmd_query(args, config, token_mgr):
-    client = QBOClient(config, token_mgr)
-    results = client.query(args.sql, max_pages=args.max_pages)
-    output(results, _resolve_fmt(args))
+def _read_stdin_json() -> dict:
+    """Read and parse JSON from stdin, or die with helpful error."""
+    if sys.stdin.isatty():
+        die("Pipe JSON body via stdin. Example: echo '{...}' | qbo <command> <entity>")
+    body = _read_optional_stdin_json()
+    if body is None:
+        die("Pipe JSON body via stdin. Example: echo '{...}' | qbo <command> <entity>")
+    return body
 
 
-def cmd_search(args, config, token_mgr):
-    client = QBOClient(config, token_mgr)
-    results = client.query(args.sql, max_pages=args.max_pages)
-
-    if args.case_sensitive:
-        matches = [row for row in results if args.text in json.dumps(row, default=str, ensure_ascii=False)]
-    else:
-        needle = args.text.casefold()
-        matches = [row for row in results if needle in json.dumps(row, default=str, ensure_ascii=False).casefold()]
-
-    output(matches, _resolve_fmt(args))
-
-
-def cmd_get(args, config, token_mgr):
-    client = QBOClient(config, token_mgr)
-    result = client.get(args.entity, args.id)
-    output(result, _resolve_fmt(args))
-
-
-def cmd_create(args, config, token_mgr):
-    body = _read_stdin_json()
-    client = QBOClient(config, token_mgr)
-    result = client.create(args.entity, body)
-    output(result, _resolve_fmt(args))
-
-
-def cmd_update(args, config, token_mgr):
-    body = _read_stdin_json()
-    client = QBOClient(config, token_mgr)
-    result = client.update(args.entity, body)
-    output(result, _resolve_fmt(args))
-
-
-def cmd_delete(args, config, token_mgr):
-    client = QBOClient(config, token_mgr)
-    result = client.delete(args.entity, args.id)
-    output(result, _resolve_fmt(args))
-
-
-def cmd_report(args, config, token_mgr):
-    client = QBOClient(config, token_mgr)
+def _build_report_params(args) -> dict | None:
+    """Build report query params from CLI args."""
     params = {}
     if args.start_date:
         params["start_date"] = _parse_date(args.start_date)
@@ -1449,38 +1455,105 @@ def cmd_report(args, config, token_mgr):
     if args.date_macro:
         params["date_macro"] = args.date_macro
     if args.params:
-        for p in args.params:
-            if "=" not in p:
-                die(f"Invalid param format '{p}'. Use key=value.")
-            k, v = p.split("=", 1)
-            params[k] = v
-    result = client.report(args.report_type, params or None)
-    output(result, _resolve_fmt(args))
+        for param in args.params:
+            if "=" not in param:
+                die(f"Invalid param format '{param}'. Use key=value.")
+            key, value = param.split("=", 1)
+            params[key] = value
+    return params or None
+
+
+def cmd_query(args, config, token_mgr):
+    client = _make_client(config, token_mgr)
+    results = client.query(args.sql, max_pages=args.max_pages)
+    _emit_result(results, args)
+
+
+def cmd_search(args, config, token_mgr):
+    client = _make_client(config, token_mgr)
+    results = client.query(args.sql, max_pages=args.max_pages)
+
+    if args.case_sensitive:
+        matches = [row for row in results if args.text in json.dumps(row, default=str, ensure_ascii=False)]
+    else:
+        needle = args.text.casefold()
+        matches = [row for row in results if needle in json.dumps(row, default=str, ensure_ascii=False).casefold()]
+
+    _emit_result(matches, args)
+
+
+def cmd_get(args, config, token_mgr):
+    client = _make_client(config, token_mgr)
+    result = client.get(args.entity, args.id)
+    _emit_result(result, args)
+
+
+def cmd_create(args, config, token_mgr):
+    body = _read_stdin_json()
+    client = _make_client(config, token_mgr)
+    result = client.create(args.entity, body)
+    _emit_result(result, args)
+
+
+def cmd_update(args, config, token_mgr):
+    body = _read_stdin_json()
+    client = _make_client(config, token_mgr)
+    result = client.update(args.entity, body)
+    _emit_result(result, args)
+
+
+def cmd_delete(args, config, token_mgr):
+    client = _make_client(config, token_mgr)
+    result = client.delete(args.entity, args.id)
+    _emit_result(result, args)
+
+
+def cmd_report(args, config, token_mgr):
+    client = _make_client(config, token_mgr)
+    result = client.report(args.report_type, _build_report_params(args))
+    _emit_result(result, args)
 
 
 def cmd_raw(args, config, token_mgr):
-    client = QBOClient(config, token_mgr)
+    client = _make_client(config, token_mgr)
     body = None
-    if args.method.upper() in ("POST", "PUT") and not sys.stdin.isatty():
-        try:
-            body = json.load(sys.stdin)
-        except json.JSONDecodeError:
-            die("Invalid JSON on stdin.")
+    if args.method.upper() in ("POST", "PUT"):
+        body = _read_optional_stdin_json()
     result = client.raw(args.method, args.path, body)
-    output(result, _resolve_fmt(args))
+    _emit_result(result, args)
 
 
 # ─── CLI Parser ──────────────────────────────────────────────────────────────
 
 
-def main():
+def _add_output_arg(
+    parser: argparse.ArgumentParser,
+    *,
+    default: str | None = None,
+    choices: tuple[str, ...] = OUTPUT_FORMATS,
+    help_text: str = FMT_HELP,
+) -> None:
+    """Add a shared output-format argument to a subcommand parser."""
+    parser.add_argument(
+        "-o",
+        "--output",
+        "--format",
+        dest="output",
+        choices=choices,
+        default=default,
+        help=help_text,
+    )
+
+
+def _build_parser() -> tuple[argparse.ArgumentParser, argparse.ArgumentParser]:
+    """Build the top-level CLI parser and auth subparser."""
     parser = argparse.ArgumentParser(
         prog="qbo",
         description="QuickBooks Online CLI — query, create, update, delete entities and run reports.",
     )
     parser.add_argument("--version", "-V", action="version", version=f"%(prog)s {__version__}")
     parser.add_argument(
-        "--format", "-f", choices=["text", "json", "tsv"], default="text", help="Output format (default: text)"
+        "--format", "-f", choices=OUTPUT_FORMATS, default="text", help="Output format (default: text)"
     )
     parser.add_argument("--sandbox", action="store_true", help="Use sandbox API endpoint")
 
@@ -1500,17 +1573,13 @@ def main():
     auth_subs.add_parser("refresh", help="Force token refresh")
     auth_subs.add_parser("setup", help="Interactive config setup (creates ~/.qbo/config.json)")
 
-    _FMT_HELP = "Output format: text (default), json, tsv"
-
     # ── query ──
     query_p = subs.add_parser("query", help="Run a QBO query (SQL-like)")
     query_p.add_argument("sql", help='QBO query, e.g. "SELECT * FROM Customer"')
     query_p.add_argument(
         "--max-pages", type=int, default=DEFAULT_MAX_PAGES, help=f"Max pagination pages (default: {DEFAULT_MAX_PAGES})"
     )
-    query_p.add_argument(
-        "-o", "--output", "--format", dest="output", choices=["text", "json", "tsv"], default=None, help=_FMT_HELP
-    )
+    _add_output_arg(query_p)
 
     # ── search ──
     search_p = subs.add_parser("search", help="Run query, then text-search rows locally")
@@ -1520,39 +1589,29 @@ def main():
         "--max-pages", type=int, default=DEFAULT_MAX_PAGES, help=f"Max pagination pages (default: {DEFAULT_MAX_PAGES})"
     )
     search_p.add_argument("--case-sensitive", action="store_true", help="Use case-sensitive matching")
-    search_p.add_argument(
-        "-o", "--output", "--format", dest="output", choices=["text", "json", "tsv"], default=None, help=_FMT_HELP
-    )
+    _add_output_arg(search_p)
 
     # ── get ──
     get_p = subs.add_parser("get", help="Get a single entity by ID")
     get_p.add_argument("entity", help="Entity type (Invoice, Customer, etc.)")
     get_p.add_argument("id", help="Entity ID")
-    get_p.add_argument(
-        "-o", "--output", "--format", dest="output", choices=["text", "json", "tsv"], default=None, help=_FMT_HELP
-    )
+    _add_output_arg(get_p)
 
     # ── create ──
     create_p = subs.add_parser("create", help="Create an entity (JSON on stdin)")
     create_p.add_argument("entity", help="Entity type")
-    create_p.add_argument(
-        "-o", "--output", "--format", dest="output", choices=["text", "json", "tsv"], default=None, help=_FMT_HELP
-    )
+    _add_output_arg(create_p)
 
     # ── update ──
     update_p = subs.add_parser("update", help="Update an entity (JSON on stdin)")
     update_p.add_argument("entity", help="Entity type")
-    update_p.add_argument(
-        "-o", "--output", "--format", dest="output", choices=["text", "json", "tsv"], default=None, help=_FMT_HELP
-    )
+    _add_output_arg(update_p)
 
     # ── delete ──
     delete_p = subs.add_parser("delete", help="Delete an entity by ID")
     delete_p.add_argument("entity", help="Entity type")
     delete_p.add_argument("id", help="Entity ID")
-    delete_p.add_argument(
-        "-o", "--output", "--format", dest="output", choices=["text", "json", "tsv"], default=None, help=_FMT_HELP
-    )
+    _add_output_arg(delete_p)
 
     # ── report ──
     report_p = subs.add_parser("report", help="Run a QBO report")
@@ -1561,17 +1620,13 @@ def main():
     report_p.add_argument("--end-date", help="End date (YYYY-MM-DD)")
     report_p.add_argument("--date-macro", help='Date macro (e.g. "Last Month", "This Year")')
     report_p.add_argument("params", nargs="*", help="Extra params as key=value")
-    report_p.add_argument(
-        "-o", "--output", "--format", dest="output", choices=["text", "json", "tsv"], default=None, help=_FMT_HELP
-    )
+    _add_output_arg(report_p)
 
     # ── raw ──
     raw_p = subs.add_parser("raw", help="Make a raw API request")
     raw_p.add_argument("method", help="HTTP method (GET, POST, PUT, DELETE)")
     raw_p.add_argument("path", help="API path after /v3/company/{realm}/")
-    raw_p.add_argument(
-        "-o", "--output", "--format", dest="output", choices=["text", "json", "tsv"], default=None, help=_FMT_HELP
-    )
+    _add_output_arg(raw_p)
 
     # ── gl-report ──
     gl_p = subs.add_parser(
@@ -1600,7 +1655,7 @@ def main():
         "-o",
         "--output",
         default="text",
-        choices=["text", "json", "txns", "expanded"],
+        choices=GL_OUTPUT_FORMATS,
         help="Output format: text (default), json, txns (flat transaction list), expanded (tree + transactions)",
     )
     gl_p.add_argument("--no-sub", action="store_true", help="Don't break down into sub-accounts (roll up into parent)")
@@ -1615,56 +1670,63 @@ def main():
         help="Sort order for --by-customer: alpha (default) or amount",
     )
 
+    return parser, auth_p
+
+
+def _build_runtime(args) -> tuple[Config, TokenManager]:
+    """Create runtime config and token manager for parsed args."""
+    config = Config()
+    if args.sandbox:
+        config.sandbox = True
+    return config, TokenManager(config)
+
+
+def _dispatch_command(args, auth_parser: argparse.ArgumentParser, config: Config, token_mgr: TokenManager) -> None:
+    """Dispatch parsed CLI args to the appropriate handler."""
+    if args.command == "auth":
+        if not args.auth_command:
+            auth_parser.print_help()
+            sys.exit(1)
+
+        auth_dispatch = {
+            "init": cmd_auth_init,
+            "status": cmd_auth_status,
+            "refresh": cmd_auth_refresh,
+            "setup": cmd_auth_setup,
+        }
+        auth_dispatch[args.auth_command](args, config, token_mgr)
+        return
+
+    dispatch = {
+        "query": cmd_query,
+        "search": cmd_search,
+        "get": cmd_get,
+        "create": cmd_create,
+        "update": cmd_update,
+        "delete": cmd_delete,
+        "report": cmd_report,
+        "raw": cmd_raw,
+        "gl-report": cmd_gl_report,
+    }
+    handler = dispatch.get(args.command)
+    if handler is None:
+        die(f"Unknown command '{args.command}'")
+
+    config.validate()
+    handler(args, config, token_mgr)
+
+
+def main() -> None:
+    parser, auth_parser = _build_parser()
+
     args = parser.parse_args()
 
     if not args.command:
         parser.print_help()
         sys.exit(1)
 
-    config = Config()
-    if args.sandbox:
-        config.sandbox = True
-    token_mgr = TokenManager(config)
-
-    # ── Dispatch ──
-    if args.command == "auth":
-        if not args.auth_command:
-            auth_p.print_help()
-            sys.exit(1)
-        dispatch = {
-            "init": cmd_auth_init,
-            "status": cmd_auth_status,
-            "refresh": cmd_auth_refresh,
-            "setup": cmd_auth_setup,
-        }
-        dispatch[args.auth_command](args, config, token_mgr)
-    elif args.command == "query":
-        config.validate()
-        cmd_query(args, config, token_mgr)
-    elif args.command == "search":
-        config.validate()
-        cmd_search(args, config, token_mgr)
-    elif args.command == "get":
-        config.validate()
-        cmd_get(args, config, token_mgr)
-    elif args.command == "create":
-        config.validate()
-        cmd_create(args, config, token_mgr)
-    elif args.command == "update":
-        config.validate()
-        cmd_update(args, config, token_mgr)
-    elif args.command == "delete":
-        config.validate()
-        cmd_delete(args, config, token_mgr)
-    elif args.command == "report":
-        config.validate()
-        cmd_report(args, config, token_mgr)
-    elif args.command == "raw":
-        config.validate()
-        cmd_raw(args, config, token_mgr)
-    elif args.command == "gl-report":
-        config.validate()
-        cmd_gl_report(args, config, token_mgr)
+    config, token_mgr = _build_runtime(args)
+    _dispatch_command(args, auth_parser, config, token_mgr)
 
 
 if __name__ == "__main__":
