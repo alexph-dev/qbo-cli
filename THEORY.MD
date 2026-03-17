@@ -46,6 +46,13 @@ The current shape now matches the intended strategy: `main()` delegates to
 handlers share helper glue, and output normalization is centralized. The code
 is still a single-file CLI, but with cleaner internal boundaries.
 
+The strongest confidence signal came from the live suite. Running all
+`@pytest.mark.live` tests against the configured QuickBooks account passed
+without changes to test code or to the refactored command paths. That matters
+because it validates the actual packaged CLI entrypoint, subprocess execution,
+auth status, report endpoints, and General Ledger smoke flows against the real
+service rather than only mocked unit-level contracts.
+
 ## Open Questions
 
 The next meaningful architectural step is still blocked on test depth, not on
