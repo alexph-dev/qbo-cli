@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from contextlib import ExitStack
 import json
 import sys
+from contextlib import ExitStack
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -169,6 +169,26 @@ class TestCmdReport:
 
 class TestCmdGlReport:
     @staticmethod
+    def _make_gl_args(**overrides):
+        defaults = {
+            "command": "gl-report",
+            "customer": None,
+            "account": "125",
+            "start": "2026-02-01",
+            "end": "2026-02-28",
+            "method": "Cash",
+            "currency": "THB",
+            "list_accounts": False,
+            "output": None,
+            "format": "text",
+            "no_sub": False,
+            "by_customer": False,
+            "sort": "alpha",
+        }
+        defaults.update(overrides)
+        return make_args(**defaults)
+
+    @staticmethod
     def _run_gl_report_json(
         fake_config,
         fake_token_mgr,
@@ -180,20 +200,10 @@ class TestCmdGlReport:
     ):
         client = MagicMock()
         client.report = MagicMock(return_value={"Header": {"Option": []}, "Rows": {}})
-        args = make_args(
-            command="gl-report",
+        args = TestCmdGlReport._make_gl_args(
             customer=customer,
-            account="125",
-            start="2026-02-01",
-            end="2026-02-28",
-            method="Cash",
-            currency="THB",
-            list_accounts=False,
             output=output,
             format=format,
-            no_sub=False,
-            by_customer=False,
-            sort="alpha",
         )
 
         with ExitStack() as stack:
@@ -215,27 +225,21 @@ class TestCmdGlReport:
 
         return json.loads(capsys.readouterr().out)
 
-    def test_gl_report_json_output(self, fake_config, fake_token_mgr, capsys):
-        data = self._run_gl_report_json(
-            fake_config,
-            fake_token_mgr,
-            capsys,
-            output="json",
-            customer="R-CB1",
-        )
-        assert data["customer"] == "PM:R-CB1"
-        assert data["account"]["name"] == "PM Owner Funds"
-        assert data["total"] == pytest.approx(123.45)
-
-    def test_gl_list_accounts_json_output_for_tree(self, fake_config, fake_token_mgr, capsys):
+    @staticmethod
+    def _run_gl_list_accounts_tree(
+        fake_config,
+        fake_token_mgr,
+        capsys,
+        *,
+        output=None,
+        format="text",
+    ):
         client = MagicMock()
-        args = make_args(
-            command="gl-report",
-            customer=None,
+        args = TestCmdGlReport._make_gl_args(
             account="125",
             list_accounts=True,
-            output="json",
-            format="text",
+            output=output,
+            format=format,
         )
 
         with (
@@ -247,18 +251,23 @@ class TestCmdGlReport:
         ):
             cmd_gl_report(args, fake_config, fake_token_mgr)
 
-        data = json.loads(capsys.readouterr().out)
-        assert data == {"name": "PM Owner Funds", "id": "125", "children": []}
+        return json.loads(capsys.readouterr().out)
 
-    def test_gl_list_accounts_json_output_for_top_level(self, fake_config, fake_token_mgr, capsys):
+    @staticmethod
+    def _run_gl_list_accounts_top_level(
+        fake_config,
+        fake_token_mgr,
+        capsys,
+        *,
+        output=None,
+        format="text",
+    ):
         client = MagicMock()
-        args = make_args(
-            command="gl-report",
-            customer=None,
+        args = TestCmdGlReport._make_gl_args(
             account=None,
             list_accounts=True,
-            output=None,
-            format="json",
+            output=output,
+            format=format,
         )
 
         with (
@@ -276,9 +285,78 @@ class TestCmdGlReport:
         ):
             cmd_gl_report(args, fake_config, fake_token_mgr)
 
-        data = json.loads(capsys.readouterr().out)
+        return json.loads(capsys.readouterr().out)
+
+    def test_gl_report_json_output(self, fake_config, fake_token_mgr, capsys):
+        data = self._run_gl_report_json(
+            fake_config,
+            fake_token_mgr,
+            capsys,
+            output="json",
+            customer="R-CB1",
+        )
+        assert data["customer"] == "PM:R-CB1"
+        assert data["account"]["name"] == "PM Owner Funds"
+        assert data["total"] == pytest.approx(123.45)
+
+    def test_gl_list_accounts_json_output_for_tree(self, fake_config, fake_token_mgr, capsys):
+        data = self._run_gl_list_accounts_tree(
+            fake_config,
+            fake_token_mgr,
+            capsys,
+            output="json",
+            format="text",
+        )
+        assert data == {"name": "PM Owner Funds", "id": "125", "children": []}
+
+    def test_gl_list_accounts_tree_respects_global_format_flag(self, fake_config, fake_token_mgr, capsys):
+        data = self._run_gl_list_accounts_tree(
+            fake_config,
+            fake_token_mgr,
+            capsys,
+            output=None,
+            format="json",
+        )
+        assert data == {"name": "PM Owner Funds", "id": "125", "children": []}
+
+    def test_gl_list_accounts_json_output_for_top_level(self, fake_config, fake_token_mgr, capsys):
+        data = self._run_gl_list_accounts_top_level(
+            fake_config,
+            fake_token_mgr,
+            capsys,
+            output=None,
+            format="json",
+        )
         assert data["top_level_count"] == 1
         assert data["groups"][0]["accounts"][0]["sub_account_count"] == 2
+
+    @pytest.mark.parametrize("fmt", ["txns", "expanded"])
+    def test_gl_list_accounts_rejects_unsupported_formats(self, fake_config, fake_token_mgr, capsys, fmt):
+        args = self._make_gl_args(account="125", list_accounts=True, output=fmt)
+        with (
+            patch("qbo_cli.cli.QBOClient", return_value=MagicMock()),
+            pytest.raises(SystemExit),
+        ):
+            cmd_gl_report(args, fake_config, fake_token_mgr)
+
+        assert "supports text or json output only" in capsys.readouterr().err
+
+    def test_gl_report_rejects_global_tsv_flag(self, fake_config, fake_token_mgr, capsys):
+        args = self._make_gl_args(output=None, format="tsv")
+        with (
+            patch("qbo_cli.cli.QBOClient", return_value=MagicMock()),
+            patch(
+                "qbo_cli.cli._discover_account_tree",
+                return_value={"name": "PM Owner Funds", "id": "125", "children": []},
+            ),
+            patch("qbo_cli.cli._parse_gl_rows", return_value=[]),
+            patch("qbo_cli.cli._build_section_index", return_value={}),
+            patch("qbo_cli.cli._extract_dates_from_gl", return_value=(None, None)),
+            pytest.raises(SystemExit),
+        ):
+            cmd_gl_report(args, fake_config, fake_token_mgr)
+
+        assert "gl-report does not support tsv output" in capsys.readouterr().err
 
     def test_gl_report_respects_global_format_flag(self, fake_config, fake_token_mgr, capsys):
         data = self._run_gl_report_json(
@@ -402,3 +480,30 @@ class TestSubcommandFormatAlias:
         mock_handler.assert_called_once()
         fake_config.validate.assert_called_once()
         assert captured["args"].output == "json"
+
+
+class TestMainGlobalFormat:
+    def test_global_format_before_gl_report_reaches_handler(self):
+        fake_config = MagicMock()
+        fake_config.validate = MagicMock()
+        fake_config.sandbox = False
+        fake_token_mgr = MagicMock()
+        captured = {}
+
+        def _capture(args, config, token_mgr):
+            captured["args"] = args
+            captured["config"] = config
+            captured["token_mgr"] = token_mgr
+
+        with (
+            patch("qbo_cli.cli.Config", return_value=fake_config),
+            patch("qbo_cli.cli.TokenManager", return_value=fake_token_mgr),
+            patch("qbo_cli.cli.cmd_gl_report", side_effect=_capture) as mock_handler,
+            patch.object(sys, "argv", ["qbo", "-f", "json", "gl-report", "-a", "125"]),
+        ):
+            main()
+
+        mock_handler.assert_called_once()
+        fake_config.validate.assert_called_once()
+        assert captured["args"].format == "json"
+        assert captured["args"].output is None
