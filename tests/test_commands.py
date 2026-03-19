@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from contextlib import ExitStack
 import json
 import sys
 from unittest.mock import MagicMock, patch
@@ -167,40 +168,61 @@ class TestCmdReport:
 
 
 class TestCmdGlReport:
-    def test_gl_report_json_output(self, fake_config, fake_token_mgr, capsys):
+    @staticmethod
+    def _run_gl_report_json(
+        fake_config,
+        fake_token_mgr,
+        capsys,
+        *,
+        output=None,
+        format="text",
+        customer=None,
+    ):
         client = MagicMock()
         client.report = MagicMock(return_value={"Header": {"Option": []}, "Rows": {}})
         args = make_args(
             command="gl-report",
-            customer="R-CB1",
+            customer=customer,
             account="125",
             start="2026-02-01",
             end="2026-02-28",
             method="Cash",
             currency="THB",
             list_accounts=False,
-            output="json",
+            output=output,
+            format=format,
             no_sub=False,
             by_customer=False,
             sort="alpha",
         )
 
-        with (
-            patch("qbo_cli.cli.QBOClient", return_value=client),
-            patch("qbo_cli.cli._resolve_customer", return_value=("104", "PM:R-CB1")),
-            patch(
-                "qbo_cli.cli._discover_account_tree",
-                return_value={"name": "PM Owner Funds", "id": "125", "children": []},
-            ),
-            patch("qbo_cli.cli._parse_gl_rows", return_value=[]),
-            patch("qbo_cli.cli._build_section_index", return_value={}),
-            patch("qbo_cli.cli._extract_dates_from_gl", return_value=(None, None)),
-            patch("qbo_cli.cli._compute_subtotal", return_value=(123.45, 0)),
-            patch("qbo_cli.cli._find_gl_section", return_value=None),
-        ):
+        with ExitStack() as stack:
+            stack.enter_context(patch("qbo_cli.cli.QBOClient", return_value=client))
+            if customer is not None:
+                stack.enter_context(patch("qbo_cli.cli._resolve_customer", return_value=("104", "PM:R-CB1")))
+            stack.enter_context(
+                patch(
+                    "qbo_cli.cli._discover_account_tree",
+                    return_value={"name": "PM Owner Funds", "id": "125", "children": []},
+                )
+            )
+            stack.enter_context(patch("qbo_cli.cli._parse_gl_rows", return_value=[]))
+            stack.enter_context(patch("qbo_cli.cli._build_section_index", return_value={}))
+            stack.enter_context(patch("qbo_cli.cli._extract_dates_from_gl", return_value=(None, None)))
+            stack.enter_context(patch("qbo_cli.cli._compute_subtotal", return_value=(123.45, 0)))
+            stack.enter_context(patch("qbo_cli.cli._find_gl_section", return_value=None))
             cmd_gl_report(args, fake_config, fake_token_mgr)
 
-        data = json.loads(capsys.readouterr().out)
+        return json.loads(capsys.readouterr().out)
+
+    def test_gl_report_json_output(self, fake_config, fake_token_mgr, capsys):
+        data = self._run_gl_report_json(
+            fake_config,
+            fake_token_mgr,
+            capsys,
+            output="json",
+            customer="R-CB1",
+        )
         assert data["customer"] == "PM:R-CB1"
         assert data["account"]["name"] == "PM Owner Funds"
         assert data["total"] == pytest.approx(123.45)
@@ -259,39 +281,13 @@ class TestCmdGlReport:
         assert data["groups"][0]["accounts"][0]["sub_account_count"] == 2
 
     def test_gl_report_respects_global_format_flag(self, fake_config, fake_token_mgr, capsys):
-        client = MagicMock()
-        client.report = MagicMock(return_value={"Header": {"Option": []}, "Rows": {}})
-        args = make_args(
-            command="gl-report",
-            customer=None,
-            account="125",
-            start="2026-02-01",
-            end="2026-02-28",
-            method="Cash",
-            currency="THB",
-            list_accounts=False,
+        data = self._run_gl_report_json(
+            fake_config,
+            fake_token_mgr,
+            capsys,
             output=None,
             format="json",
-            no_sub=False,
-            by_customer=False,
-            sort="alpha",
         )
-
-        with (
-            patch("qbo_cli.cli.QBOClient", return_value=client),
-            patch(
-                "qbo_cli.cli._discover_account_tree",
-                return_value={"name": "PM Owner Funds", "id": "125", "children": []},
-            ),
-            patch("qbo_cli.cli._parse_gl_rows", return_value=[]),
-            patch("qbo_cli.cli._build_section_index", return_value={}),
-            patch("qbo_cli.cli._extract_dates_from_gl", return_value=(None, None)),
-            patch("qbo_cli.cli._compute_subtotal", return_value=(123.45, 0)),
-            patch("qbo_cli.cli._find_gl_section", return_value=None),
-        ):
-            cmd_gl_report(args, fake_config, fake_token_mgr)
-
-        data = json.loads(capsys.readouterr().out)
         assert data["account"]["name"] == "PM Owner Funds"
         assert data["total"] == pytest.approx(123.45)
 

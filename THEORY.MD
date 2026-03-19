@@ -1,4 +1,4 @@
-# Theory: Safe CLI Refactor With Remote Gate Verification
+# Theory: Safe CLI Refactor With Full Remote Gate Closure
 
 ## Problem
 
@@ -50,11 +50,20 @@ always rendered text. That meant the right fix was to resolve format once at
 the top of `cmd_gl_report()` and apply it consistently across both report and
 account-listing modes.
 
+The third discovery was that clearing the first Sonar failure exposed the next
+real gate: duplication on new code. The issue was not production logic but the
+shape of the added tests. Two `gl-report` JSON tests repeated the same setup
+block closely enough to push new-code duplication above the gate threshold. The
+correct response was again structural, not cosmetic: factor the shared mocked
+report setup into one test helper instead of trying to silence Sonar or delete
+coverage.
+
 The final shape is small and structural. `gl-report` now honors shared format
 resolution across its main branches, `--list-accounts` supports `text` and
 `json`, unsupported format combinations fail explicitly, `qbo_cli/cli.py`
-matches Ruff formatting, and the new test assertions use `pytest.approx` so
-SonarCloud no longer sees new float-equality bugs in the touched tests.
+matches Ruff formatting, float assertions use `pytest.approx`, and the
+`gl-report` JSON tests share one helper so the remote duplication gate can pass
+without losing coverage.
 
 Verification stayed strong after the fixes. Full non-live `pytest`, full
 `@pytest.mark.live` smoke tests, Ruff lint, Ruff format checks, and `mypy` all
