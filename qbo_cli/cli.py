@@ -768,8 +768,8 @@ def _discover_account_tree(client: "QBOClient", account_ref: str) -> dict:
     }
 
 
-def _list_all_accounts(client: "QBOClient"):
-    """Print all top-level accounts grouped by type."""
+def _list_all_accounts_data(client: "QBOClient") -> dict:
+    """Return all top-level accounts grouped by type."""
     all_accts = client.query("SELECT Id, Name, FullyQualifiedName, AccountType, SubAccount, ParentRef FROM Account")
 
     children_by_parent = defaultdict(list)
@@ -784,19 +784,42 @@ def _list_all_accounts(client: "QBOClient"):
     top = [a for a in all_accts if not a.get("SubAccount", False)]
     top.sort(key=lambda a: (a.get("AccountType", ""), a.get("Name", "")))
 
-    current_type = None
+    groups = []
+    current_group = None
     for a in top:
         atype = a.get("AccountType", "Other")
-        if atype != current_type:
-            if current_type is not None:
-                print()
-            print(f"── {atype} ──")
-            current_type = atype
         desc = count_descendants(a["Id"])
-        sub_str = f"  ({desc} sub-accounts)" if desc else ""
-        print(f"  {a['Id']:>15}  {a['Name']}{sub_str}")
+        if current_group is None or current_group["type"] != atype:
+            current_group = {"type": atype, "accounts": []}
+            groups.append(current_group)
+        current_group["accounts"].append(
+            {
+                "id": a["Id"],
+                "name": a["Name"],
+                "sub_account_count": desc,
+            }
+        )
 
-    print(f"\n{len(top)} top-level accounts, {len(all_accts)} total")
+    return {
+        "groups": groups,
+        "top_level_count": len(top),
+        "total_count": len(all_accts),
+    }
+
+
+def _list_all_accounts(client: "QBOClient") -> None:
+    """Print all top-level accounts grouped by type."""
+    account_data = _list_all_accounts_data(client)
+    for index, group in enumerate(account_data["groups"]):
+        if index > 0:
+            print()
+        print(f"── {group['type']} ──")
+        for account in group["accounts"]:
+            desc = account["sub_account_count"]
+            sub_str = f"  ({desc} sub-accounts)" if desc else ""
+            print(f"  {account['id']:>15}  {account['name']}{sub_str}")
+
+    print(f"\n{account_data['top_level_count']} top-level accounts, {account_data['total_count']} total")
 
 
 def _print_account_tree(node: dict, indent: int = 0):
@@ -1107,14 +1130,23 @@ def _txn_to_dict(t: GLTransaction) -> dict:
 def cmd_gl_report(args, config, token_mgr):
     """Generate a hierarchical General Ledger report."""
     client = QBOClient(config, token_mgr)
+    out_mode = _resolve_fmt(args)
 
     # --list-accounts mode
     if args.list_accounts:
+        if out_mode not in ("text", "json"):
+            die("gl-report --list-accounts supports text or json output only.")
         if args.account:
             tree = _discover_account_tree(client, args.account)
-            _print_account_tree(tree)
+            if out_mode == "json":
+                output(tree, out_mode)
+            else:
+                _print_account_tree(tree)
         else:
-            _list_all_accounts(client)
+            if out_mode == "json":
+                output(_list_all_accounts_data(client), out_mode)
+            else:
+                _list_all_accounts(client)
         return
 
     # Resolve customer (optional)
@@ -1163,7 +1195,6 @@ def cmd_gl_report(args, config, token_mgr):
             display_start = actual_first
 
     # Output
-    out_mode = _resolve_fmt(args)
     if out_mode == "tsv":
         die("gl-report does not support tsv output. Use text, json, txns, or expanded.")
     title = f"General Ledger Report - {cust_name}" if cust_name else "General Ledger Report"
@@ -1554,9 +1585,7 @@ def _build_parser() -> tuple[argparse.ArgumentParser, argparse.ArgumentParser]:
         description="QuickBooks Online CLI — query, create, update, delete entities and run reports.",
     )
     parser.add_argument("--version", "-V", action="version", version=f"%(prog)s {__version__}")
-    parser.add_argument(
-        "--format", "-f", choices=OUTPUT_FORMATS, default="text", help="Output format (default: text)"
-    )
+    parser.add_argument("--format", "-f", choices=OUTPUT_FORMATS, default="text", help="Output format (default: text)")
     parser.add_argument("--sandbox", action="store_true", help="Use sandbox API endpoint")
 
     subs = parser.add_subparsers(dest="command")
@@ -1646,7 +1675,14 @@ def _build_parser() -> tuple[argparse.ArgumentParser, argparse.ArgumentParser]:
     gl_p.add_argument(
         "-a", "--account", default=None, help="Top-level account ID or name (auto-discovers sub-accounts)"
     )
-    gl_p.add_argument("-b", "--begin", "--start", default=None, dest="start", help="Start date YYYY-MM-DD or DD.MM.YYYY (default: first transaction)")
+    gl_p.add_argument(
+        "-b",
+        "--begin",
+        "--start",
+        default=None,
+        dest="start",
+        help="Start date YYYY-MM-DD or DD.MM.YYYY (default: first transaction)",
+    )
     gl_p.add_argument("-e", "--end", default=None, help="End date YYYY-MM-DD or DD.MM.YYYY (default: today)")
     gl_p.add_argument("--method", default="Cash", choices=["Cash", "Accrual"], help="Accounting method (default: Cash)")
     gl_p.add_argument("--currency", default="", help="Currency prefix for display (e.g. THB, USD, €)")

@@ -78,6 +78,7 @@ flowchart TD
 - Report builders format that tree into text, JSON-like structures, or transaction lists.
 - `cmd_gl_report()` remains the orchestration point for account discovery, customer resolution,
   date handling, and final rendering.
+- `--list-accounts` shares the same format resolution and supports `text`/`json` only.
 - `gl-report` follows the shared format resolver for `text`/`json`, adds `txns` and `expanded`,
   and rejects unsupported `tsv` explicitly.
 

@@ -28,9 +28,7 @@ class TestCmdQuery:
     def test_query_forwards_sql_and_max_pages(self, fake_config, fake_token_mgr):
         """Verify cmd_query passes SQL and max_pages to client.query."""
         client = QBOClient(fake_config, fake_token_mgr)
-        client.request = MagicMock(
-            return_value={"QueryResponse": {"Customer": [{"Id": "1", "DisplayName": "Acme"}]}}
-        )
+        client.request = MagicMock(return_value={"QueryResponse": {"Customer": [{"Id": "1", "DisplayName": "Acme"}]}})
         args = make_args(command="query", sql="SELECT Id FROM Customer", output=None, format="text", max_pages=50)
 
         with patch("qbo_cli.cli.QBOClient", return_value=client):
@@ -43,9 +41,7 @@ class TestCmdQuery:
 
     def test_query_json_output(self, fake_config, fake_token_mgr, capsys):
         client = QBOClient(fake_config, fake_token_mgr)
-        client.request = MagicMock(
-            return_value={"QueryResponse": {"Customer": [{"Id": "1", "DisplayName": "Acme"}]}}
-        )
+        client.request = MagicMock(return_value={"QueryResponse": {"Customer": [{"Id": "1", "DisplayName": "Acme"}]}})
         args = make_args(command="query", sql="SELECT * FROM Customer", output="json", format="text")
 
         with patch("qbo_cli.cli.QBOClient", return_value=client):
@@ -57,9 +53,7 @@ class TestCmdQuery:
 
     def test_query_text_output(self, fake_config, fake_token_mgr, capsys):
         client = QBOClient(fake_config, fake_token_mgr)
-        client.request = MagicMock(
-            return_value={"QueryResponse": {"Customer": [{"Id": "1", "DisplayName": "Acme"}]}}
-        )
+        client.request = MagicMock(return_value={"QueryResponse": {"Customer": [{"Id": "1", "DisplayName": "Acme"}]}})
         args = make_args(command="query", sql="SELECT * FROM Customer", output=None, format="text")
 
         with patch("qbo_cli.cli.QBOClient", return_value=client):
@@ -194,7 +188,10 @@ class TestCmdGlReport:
         with (
             patch("qbo_cli.cli.QBOClient", return_value=client),
             patch("qbo_cli.cli._resolve_customer", return_value=("104", "PM:R-CB1")),
-            patch("qbo_cli.cli._discover_account_tree", return_value={"name": "PM Owner Funds", "id": "125", "children": []}),
+            patch(
+                "qbo_cli.cli._discover_account_tree",
+                return_value={"name": "PM Owner Funds", "id": "125", "children": []},
+            ),
             patch("qbo_cli.cli._parse_gl_rows", return_value=[]),
             patch("qbo_cli.cli._build_section_index", return_value={}),
             patch("qbo_cli.cli._extract_dates_from_gl", return_value=(None, None)),
@@ -206,7 +203,60 @@ class TestCmdGlReport:
         data = json.loads(capsys.readouterr().out)
         assert data["customer"] == "PM:R-CB1"
         assert data["account"]["name"] == "PM Owner Funds"
-        assert data["total"] == 123.45
+        assert data["total"] == pytest.approx(123.45)
+
+    def test_gl_list_accounts_json_output_for_tree(self, fake_config, fake_token_mgr, capsys):
+        client = MagicMock()
+        args = make_args(
+            command="gl-report",
+            customer=None,
+            account="125",
+            list_accounts=True,
+            output="json",
+            format="text",
+        )
+
+        with (
+            patch("qbo_cli.cli.QBOClient", return_value=client),
+            patch(
+                "qbo_cli.cli._discover_account_tree",
+                return_value={"name": "PM Owner Funds", "id": "125", "children": []},
+            ),
+        ):
+            cmd_gl_report(args, fake_config, fake_token_mgr)
+
+        data = json.loads(capsys.readouterr().out)
+        assert data == {"name": "PM Owner Funds", "id": "125", "children": []}
+
+    def test_gl_list_accounts_json_output_for_top_level(self, fake_config, fake_token_mgr, capsys):
+        client = MagicMock()
+        args = make_args(
+            command="gl-report",
+            customer=None,
+            account=None,
+            list_accounts=True,
+            output=None,
+            format="json",
+        )
+
+        with (
+            patch("qbo_cli.cli.QBOClient", return_value=client),
+            patch(
+                "qbo_cli.cli._list_all_accounts_data",
+                return_value={
+                    "groups": [
+                        {"type": "Income", "accounts": [{"id": "125", "name": "Revenue", "sub_account_count": 2}]}
+                    ],
+                    "top_level_count": 1,
+                    "total_count": 3,
+                },
+            ),
+        ):
+            cmd_gl_report(args, fake_config, fake_token_mgr)
+
+        data = json.loads(capsys.readouterr().out)
+        assert data["top_level_count"] == 1
+        assert data["groups"][0]["accounts"][0]["sub_account_count"] == 2
 
     def test_gl_report_respects_global_format_flag(self, fake_config, fake_token_mgr, capsys):
         client = MagicMock()
@@ -243,7 +293,7 @@ class TestCmdGlReport:
 
         data = json.loads(capsys.readouterr().out)
         assert data["account"]["name"] == "PM Owner Funds"
-        assert data["total"] == 123.45
+        assert data["total"] == pytest.approx(123.45)
 
 
 # ─── cmd_create / cmd_update ──────────────────────────────────────────────────
@@ -257,8 +307,9 @@ class TestCmdCreateUpdate:
         args = make_args(command="create", entity="Customer", output="json", format="text")
 
         body = {"DisplayName": "New Corp"}
-        with patch("qbo_cli.cli.QBOClient", return_value=client), patch(
-            "qbo_cli.cli._read_stdin_json", return_value=body
+        with (
+            patch("qbo_cli.cli.QBOClient", return_value=client),
+            patch("qbo_cli.cli._read_stdin_json", return_value=body),
         ):
             cmd_create(args, fake_config, fake_token_mgr)
 
@@ -268,14 +319,13 @@ class TestCmdCreateUpdate:
     def test_cmd_update_calls_post_with_entity_and_body(self, fake_config, fake_token_mgr):
         """Verify update calls client.request(POST, entity, body)."""
         client = QBOClient(fake_config, fake_token_mgr)
-        client.request = MagicMock(
-            return_value={"Customer": {"Id": "1", "DisplayName": "Updated Corp"}}
-        )
+        client.request = MagicMock(return_value={"Customer": {"Id": "1", "DisplayName": "Updated Corp"}})
         args = make_args(command="update", entity="Customer", output="json", format="text")
 
         body = {"Id": "1", "DisplayName": "Updated Corp", "SyncToken": "0"}
-        with patch("qbo_cli.cli.QBOClient", return_value=client), patch(
-            "qbo_cli.cli._read_stdin_json", return_value=body
+        with (
+            patch("qbo_cli.cli.QBOClient", return_value=client),
+            patch("qbo_cli.cli._read_stdin_json", return_value=body),
         ):
             cmd_update(args, fake_config, fake_token_mgr)
 
@@ -287,8 +337,9 @@ class TestCmdCreateUpdate:
         client.request = MagicMock(return_value={"Customer": {"Id": "99", "DisplayName": "New Corp"}})
         args = make_args(command="create", entity="Customer", output="json", format="text")
 
-        with patch("qbo_cli.cli.QBOClient", return_value=client), patch(
-            "qbo_cli.cli._read_stdin_json", return_value={"DisplayName": "New Corp"}
+        with (
+            patch("qbo_cli.cli.QBOClient", return_value=client),
+            patch("qbo_cli.cli._read_stdin_json", return_value={"DisplayName": "New Corp"}),
         ):
             cmd_create(args, fake_config, fake_token_mgr)
 

@@ -205,6 +205,9 @@ qbo gl-report --list-accounts
 # Drill into a specific account's sub-accounts
 qbo gl-report -a 125 --list-accounts
 
+# Account tree as JSON
+qbo gl-report -a 125 --list-accounts --format json
+
 # Generate a report (text by default)
 qbo gl-report -c "John Smith" -a 125
 

@@ -78,6 +78,21 @@ def test_smoke_gl_list_accounts():
 
 
 @pytest.mark.live
+def test_smoke_gl_list_accounts_json():
+    """List top-level accounts via gl-report as JSON."""
+    result = subprocess.run(
+        ["qbo", "gl-report", "--list-accounts", "--format", "json"],
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    assert result.returncode == 0, f"stderr: {result.stderr}"
+    data = json.loads(result.stdout)
+    assert "groups" in data
+    assert "top_level_count" in data
+
+
+@pytest.mark.live
 def test_smoke_gl_report_text():
     """GL report for first discovered account, text output."""
     # Find an account ID first

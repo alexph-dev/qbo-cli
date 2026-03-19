@@ -1,13 +1,13 @@
-# Theory: Safe CLI Refactor With Format Contract Verification
+# Theory: Safe CLI Refactor With Remote Gate Verification
 
 ## Problem
 
 `qbo_cli/cli.py` still carries the whole CLI surface, so small refactors can
-silently change behavior in places where parser defaults, command glue, and
-output selection interact. The structural cleanup already improved the file, but
-that kind of cleanup is only safe if the format contract stays consistent across
-commands. `gl-report` was the highest-risk spot because it has custom output
-modes and heavier orchestration than the basic CRUD/report commands.
+silently change behavior in places where parser defaults, command glue, output
+selection, and report sub-modes interact. The earlier refactor improved
+structure, but the real acceptance bar is not local green alone. This repo also
+has remote gates with different checks, so a change is not actually done until
+the command contract and the CI/quality contract both hold.
 
 ## Operating Theory
 
@@ -17,48 +17,53 @@ centralizing parser construction, runtime creation, dispatch, stdin handling,
 report param building, and output emission. That increases maintainability, but
 it also means one mismatch in format resolution can affect an entire command
 surface. The leverage point is therefore not more extraction; it is making sure
-every command follows the same format-selection rules unless it has an explicit
-reason not to.
+every `gl-report` branch follows the same format-selection rules unless it has
+an explicit reason not to, and making sure local verification matches the remote
+gates that will judge the change.
 
 ## Strategy
 
-Treat the refactor as successful only if the CLI contract is demonstrably
-preserved:
+Treat the work as successful only if both the CLI behavior and the remote gates
+are demonstrably satisfied:
 
 - review local commits and uncommitted fixes against `origin/main`
 - verify parser behavior directly, not only through handler unit tests
-- patch only the format-resolution gap at the source
+- patch format-resolution gaps at the source, not in downstream renderers
 - add tests that lock the contract in place for both command-level and parser-level flows
-- validate with unit tests, live tests, and static checks that matter for the touched surface
+- validate with unit tests, live tests, Ruff format/lint, mypy, and then remote GitHub checks
 
 The intent is still minimal movement. One root fix in the parser/output path is
 better than special-casing downstream rendering.
 
 ## Key Discoveries
 
-The critical discovery from review was not inside report generation itself but
-at the CLI boundary: `gl-report` emitted JSON correctly when `args.output` was
-set to `json`, but it did not actually honor the shared format contract. Global
-`-f json` left `args.output` at `"text"`, and `gl-report --format json` was not
-accepted at all. That meant the refactor had made the common `_resolve_fmt()`
-path feel shared while `gl-report` still behaved like a special case.
+The first important discovery was that the initial remote failure was not a
+failing runtime test. GitHub `Tests` passed. The real blockers were `ruff
+format --check qbo_cli/` and SonarCloud's quality gate on new code. That
+shifted the problem from "the feature is still broken" to "the feature works,
+but the repo's remote acceptance rules were not fully matched locally."
 
-The fix is small and structural. `gl-report` now resolves output through the
-same format selector as other commands, accepts `--format` as an alias, and
-fails explicitly for `tsv`, which remains unsupported for that command. The
-tests now cover both direct handler behavior and parser wiring for `gl-report`,
-which was the missing safety net.
+The second discovery was that the original format bug had a sibling branch.
+`gl-report` report rendering had been fixed to respect shared format
+resolution, but `gl-report --list-accounts` still bypassed that contract and
+always rendered text. That meant the right fix was to resolve format once at
+the top of `cmd_gl_report()` and apply it consistently across both report and
+account-listing modes.
 
-Verification stayed strong after the fix. Full non-live `pytest`, full
-`@pytest.mark.live` smoke tests, and `mypy` all passed. Ruff also passes for the
-touched surface. Repo-wide Ruff failures still exist on `origin/main`, but they
-are pre-existing test-file issues unrelated to this refactor.
+The final shape is small and structural. `gl-report` now honors shared format
+resolution across its main branches, `--list-accounts` supports `text` and
+`json`, unsupported format combinations fail explicitly, `qbo_cli/cli.py`
+matches Ruff formatting, and the new test assertions use `pytest.approx` so
+SonarCloud no longer sees new float-equality bugs in the touched tests.
+
+Verification stayed strong after the fixes. Full non-live `pytest`, full
+`@pytest.mark.live` smoke tests, Ruff lint, Ruff format checks, and `mypy` all
+passed locally.
 
 ## Open Questions
 
 The main remaining uncertainty is still test depth around the most stateful
 paths: `TokenManager`, OAuth callback handling, and the more exotic
-`cmd_gl_report()` modes such as `txns`, `expanded`, and explicit unsupported
-format cases. Future extraction work should wait until those contracts are
-covered more directly, otherwise readability gains will come with regression
-risk.
+`cmd_gl_report()` combinations outside the covered text/json flows. Future
+extraction work should wait until those contracts are covered more directly,
+otherwise readability gains will come with regression risk.
