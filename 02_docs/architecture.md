@@ -66,6 +66,8 @@ flowchart TD
 ### Output Layer
 
 - `output()` dispatches to text/JSON/TSV modes.
+- `_resolve_fmt()` defines the shared precedence rule: command-specific `--output/--format`
+  overrides global `-f/--format`.
 - `_normalize_output_data()` centralizes dict/list normalization shared by text/TSV output.
 - `_output_kv()` handles readable single-entity rendering.
 
@@ -76,6 +78,8 @@ flowchart TD
 - Report builders format that tree into text, JSON-like structures, or transaction lists.
 - `cmd_gl_report()` remains the orchestration point for account discovery, customer resolution,
   date handling, and final rendering.
+- `gl-report` follows the shared format resolver for `text`/`json`, adds `txns` and `expanded`,
+  and rejects unsupported `tsv` explicitly.
 
 ## Safety Boundaries
 

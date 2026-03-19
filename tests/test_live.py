@@ -125,11 +125,10 @@ def test_smoke_gl_report_json():
     )
     if result.returncode != 0:
         pytest.skip(f"GL report returned no data for account {acct_id}")
-    # -o json in gl-report renders as key-value text (not raw JSON)
-    # Verify structural text output contains expected fields
-    assert "start_date" in result.stdout
-    assert "end_date" in result.stdout
-    assert "total" in result.stdout
+    data = json.loads(result.stdout)
+    assert "start_date" in data
+    assert "end_date" in data
+    assert "total" in data
 
 
 @pytest.mark.live

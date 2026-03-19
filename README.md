@@ -214,9 +214,14 @@ qbo gl-report -c "John Smith" -a 125 --currency USD
 # Custom date range
 qbo gl-report -c "John Smith" -a "Revenue" --start 2025-01-01 --end 2025-12-31
 
+# Structured JSON output
+qbo gl-report -a 125 --format json
+
 # Dates default to: first transaction → today
 qbo gl-report -c "John Smith" -a 125
 ```
+
+`gl-report` supports `text`, `json`, `txns`, and `expanded`. `tsv` is not available for this command.
 
 ### Output formats
 

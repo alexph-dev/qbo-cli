@@ -1,62 +1,64 @@
-# Theory: Safe Internal Refactor for qbo-cli
+# Theory: Safe CLI Refactor With Format Contract Verification
 
 ## Problem
 
-`qbo_cli/cli.py` is still the center of the application, but before this pass it
-mixed parser construction, command dispatch, repeated command glue, and output
-normalization in ways that made small changes noisier than necessary. The risk
-was not a broken CLI; the risk was that future edits would keep paying a
-complexity tax in the least interesting parts of the file.
+`qbo_cli/cli.py` still carries the whole CLI surface, so small refactors can
+silently change behavior in places where parser defaults, command glue, and
+output selection interact. The structural cleanup already improved the file, but
+that kind of cleanup is only safe if the format contract stays consistent across
+commands. `gl-report` was the highest-risk spot because it has custom output
+modes and heavier orchestration than the basic CRUD/report commands.
 
 ## Operating Theory
 
-The project is safest to improve at its seams. Unit tests already protect the
-public behavior of common command handlers, parser aliases, output formatting,
-client pagination/retry behavior, and many pure report helpers. The less-tested
-surfaces are OAuth callback handling, token persistence internals, and the
-orchestration-heavy parts of `cmd_gl_report()`. That makes the correct lever a
-local refactor of parser/dispatch and command plumbing, not a large module
-split.
+The right way to stabilize this codebase is to keep changes at the seams and
+verify the public contract aggressively. The refactor reduced duplication by
+centralizing parser construction, runtime creation, dispatch, stdin handling,
+report param building, and output emission. That increases maintainability, but
+it also means one mismatch in format resolution can affect an entire command
+surface. The leverage point is therefore not more extraction; it is making sure
+every command follows the same format-selection rules unless it has an explicit
+reason not to.
 
 ## Strategy
 
-Keep behavior stable while reducing repetition:
+Treat the refactor as successful only if the CLI contract is demonstrably
+preserved:
 
-- shrink `main()` into orchestration only
-- move parser building and dispatch decisions into dedicated helpers
-- centralize repeated command concerns: client creation, output emission, stdin
-  JSON loading, report param building
-- centralize output normalization shared by text and TSV rendering
-- document the logical architecture so the file can stay understandable even
-  before a future module split
+- review local commits and uncommitted fixes against `origin/main`
+- verify parser behavior directly, not only through handler unit tests
+- patch only the format-resolution gap at the source
+- add tests that lock the contract in place for both command-level and parser-level flows
+- validate with unit tests, live tests, and static checks that matter for the touched surface
 
-The aim is structural clarity with minimal movement of risky code.
+The intent is still minimal movement. One root fix in the parser/output path is
+better than special-casing downstream rendering.
 
 ## Key Discoveries
 
-The earlier readonly pass was useful because it separated environment gaps from
-real quality issues. Once the local toolchain was installed, the important fact
-was that `pytest` was already green, `ruff` problems were isolated to tests,
-and `mypy` failures in `qbo_cli/cli.py` were small enough to eliminate as part
-of the refactor. That turned the work from "safe cleanup only" into "safe
-cleanup plus static-check hardening" without widening the risk surface.
+The critical discovery from review was not inside report generation itself but
+at the CLI boundary: `gl-report` emitted JSON correctly when `args.output` was
+set to `json`, but it did not actually honor the shared format contract. Global
+`-f json` left `args.output` at `"text"`, and `gl-report --format json` was not
+accepted at all. That meant the refactor had made the common `_resolve_fmt()`
+path feel shared while `gl-report` still behaved like a special case.
 
-The current shape now matches the intended strategy: `main()` delegates to
-`_build_parser()`, `_build_runtime()`, and `_dispatch_command()`, command
-handlers share helper glue, and output normalization is centralized. The code
-is still a single-file CLI, but with cleaner internal boundaries.
+The fix is small and structural. `gl-report` now resolves output through the
+same format selector as other commands, accepts `--format` as an alias, and
+fails explicitly for `tsv`, which remains unsupported for that command. The
+tests now cover both direct handler behavior and parser wiring for `gl-report`,
+which was the missing safety net.
 
-The strongest confidence signal came from the live suite. Running all
-`@pytest.mark.live` tests against the configured QuickBooks account passed
-without changes to test code or to the refactored command paths. That matters
-because it validates the actual packaged CLI entrypoint, subprocess execution,
-auth status, report endpoints, and General Ledger smoke flows against the real
-service rather than only mocked unit-level contracts.
+Verification stayed strong after the fix. Full non-live `pytest`, full
+`@pytest.mark.live` smoke tests, and `mypy` all passed. Ruff also passes for the
+touched surface. Repo-wide Ruff failures still exist on `origin/main`, but they
+are pre-existing test-file issues unrelated to this refactor.
 
 ## Open Questions
 
-The next meaningful architectural step is still blocked on test depth, not on
-mechanical extraction work. Before splitting `cli.py` into separate modules, the
-project should add stronger tests around `TokenManager`, OAuth callback state
-handling, and `cmd_gl_report()` output modes. Without that, larger movement
-would trade readability gains for regression risk.
+The main remaining uncertainty is still test depth around the most stateful
+paths: `TokenManager`, OAuth callback handling, and the more exotic
+`cmd_gl_report()` modes such as `txns`, `expanded`, and explicit unsupported
+format cases. Future extraction work should wait until those contracts are
+covered more directly, otherwise readability gains will come with regression
+risk.

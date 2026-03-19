@@ -10,16 +10,16 @@ import pytest
 
 from qbo_cli.cli import (
     QBOClient,
+    _resolve_fmt,
     cmd_create,
+    cmd_gl_report,
     cmd_query,
-    cmd_search,
     cmd_report,
+    cmd_search,
     cmd_update,
     main,
-    _resolve_fmt,
 )
 from tests.conftest import make_args
-
 
 # ─── cmd_query ────────────────────────────────────────────────────────────────
 
@@ -169,6 +169,83 @@ class TestCmdReport:
         assert params["accounting_method"] == "Cash"
 
 
+# ─── cmd_gl_report ────────────────────────────────────────────────────────────
+
+
+class TestCmdGlReport:
+    def test_gl_report_json_output(self, fake_config, fake_token_mgr, capsys):
+        client = MagicMock()
+        client.report = MagicMock(return_value={"Header": {"Option": []}, "Rows": {}})
+        args = make_args(
+            command="gl-report",
+            customer="R-CB1",
+            account="125",
+            start="2026-02-01",
+            end="2026-02-28",
+            method="Cash",
+            currency="THB",
+            list_accounts=False,
+            output="json",
+            no_sub=False,
+            by_customer=False,
+            sort="alpha",
+        )
+
+        with (
+            patch("qbo_cli.cli.QBOClient", return_value=client),
+            patch("qbo_cli.cli._resolve_customer", return_value=("104", "PM:R-CB1")),
+            patch("qbo_cli.cli._discover_account_tree", return_value={"name": "PM Owner Funds", "id": "125", "children": []}),
+            patch("qbo_cli.cli._parse_gl_rows", return_value=[]),
+            patch("qbo_cli.cli._build_section_index", return_value={}),
+            patch("qbo_cli.cli._extract_dates_from_gl", return_value=(None, None)),
+            patch("qbo_cli.cli._compute_subtotal", return_value=(123.45, 0)),
+            patch("qbo_cli.cli._find_gl_section", return_value=None),
+        ):
+            cmd_gl_report(args, fake_config, fake_token_mgr)
+
+        data = json.loads(capsys.readouterr().out)
+        assert data["customer"] == "PM:R-CB1"
+        assert data["account"]["name"] == "PM Owner Funds"
+        assert data["total"] == 123.45
+
+    def test_gl_report_respects_global_format_flag(self, fake_config, fake_token_mgr, capsys):
+        client = MagicMock()
+        client.report = MagicMock(return_value={"Header": {"Option": []}, "Rows": {}})
+        args = make_args(
+            command="gl-report",
+            customer=None,
+            account="125",
+            start="2026-02-01",
+            end="2026-02-28",
+            method="Cash",
+            currency="THB",
+            list_accounts=False,
+            output=None,
+            format="json",
+            no_sub=False,
+            by_customer=False,
+            sort="alpha",
+        )
+
+        with (
+            patch("qbo_cli.cli.QBOClient", return_value=client),
+            patch(
+                "qbo_cli.cli._discover_account_tree",
+                return_value={"name": "PM Owner Funds", "id": "125", "children": []},
+            ),
+            patch("qbo_cli.cli._parse_gl_rows", return_value=[]),
+            patch("qbo_cli.cli._build_section_index", return_value={}),
+            patch("qbo_cli.cli._extract_dates_from_gl", return_value=(None, None)),
+            patch("qbo_cli.cli._compute_subtotal", return_value=(123.45, 0)),
+            patch("qbo_cli.cli._find_gl_section", return_value=None),
+        ):
+            cmd_gl_report(args, fake_config, fake_token_mgr)
+
+        data = json.loads(capsys.readouterr().out)
+        assert data["account"]["name"] == "PM Owner Funds"
+        assert data["total"] == 123.45
+
+
 # ─── cmd_create / cmd_update ──────────────────────────────────────────────────
 
 
@@ -252,6 +329,7 @@ class TestSubcommandFormatAlias:
             (["qbo", "delete", "Customer", "1", "--format", "json"], "cmd_delete"),
             (["qbo", "report", "ProfitAndLoss", "--format", "json"], "cmd_report"),
             (["qbo", "raw", "GET", "companyinfo/1", "--format", "json"], "cmd_raw"),
+            (["qbo", "gl-report", "-a", "125", "--format", "json"], "cmd_gl_report"),
         ],
     )
     def test_format_alias_after_subcommand_maps_to_output(self, argv, handler_name):

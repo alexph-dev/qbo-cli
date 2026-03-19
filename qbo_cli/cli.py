@@ -1163,7 +1163,9 @@ def cmd_gl_report(args, config, token_mgr):
             display_start = actual_first
 
     # Output
-    out_mode = args.output
+    out_mode = _resolve_fmt(args)
+    if out_mode == "tsv":
+        die("gl-report does not support tsv output. Use text, json, txns, or expanded.")
     title = f"General Ledger Report - {cust_name}" if cust_name else "General Ledger Report"
     date_range = _format_date_range(display_start, end_date)
     currency = args.currency
@@ -1207,7 +1209,7 @@ def cmd_gl_report(args, config, token_mgr):
             report_data["customer"] = cust_name
             report_data["customer_id"] = cust_id
 
-        output(report_data)
+        output(report_data, out_mode)
 
     elif out_mode == "txns":
         lines = [title, date_range, ""]
@@ -1654,7 +1656,9 @@ def _build_parser() -> tuple[argparse.ArgumentParser, argparse.ArgumentParser]:
     gl_p.add_argument(
         "-o",
         "--output",
-        default="text",
+        "--format",
+        dest="output",
+        default=None,
         choices=GL_OUTPUT_FORMATS,
         help="Output format: text (default), json, txns (flat transaction list), expanded (tree + transactions)",
     )
