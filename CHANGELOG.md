@@ -1,14 +1,25 @@
 # Changelog
 
-## 0.6.0 (2026-02-17)
+## 0.7.0 (2026-03-20)
 
-- Security hardening: OAuth `state` parameter validation (CSRF protection)
+- Feature: `qbo search` — generic local text search over query results
+- Feature: flexible date input (DD.MM.YYYY, DD/MM/YYYY) with `-e` shorthand
+- Feature: `-b`/`--begin` alias for `--start` in `gl-report`
+- Security: OAuth `state` parameter validation (CSRF protection)
 - Security: lock file permissions restricted to `0o600`
 - Performance: O(n) account tree and GL section lookups (was O(n^2))
-- Fix: LIKE wildcard `%` stripped in query escaping
-- Fix: version defined in single source (`__init__.py`), no more triplication
+- Fix: `gl-report` format flags honored across all branches (report + list-accounts)
+- Fix: LIKE wildcard `%` no longer stripped in query escaping
+- Fix: version defined in single source (`__init__.py`)
+- Fix: Python 3.9 compatibility restored (`from __future__ import annotations`)
+- Refactor: simplified CLI parser and command dispatch glue
 - CI: GitHub Actions pinned to immutable commit SHAs
-- Python 3.9 compatibility restored (`from __future__ import annotations`)
+- Test: comprehensive test suite — 134 tests (was ~10)
+- Chore: ast-grep rules for security and code quality linting
+
+## 0.6.0 (2026-02-17)
+
+- Version bump (release automation test)
 
 ## 0.5.0 (2026-02-16)
 

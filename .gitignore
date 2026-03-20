@@ -35,3 +35,6 @@ htmlcov/
 
 # Internal project docs (architecture, research, marketing)
 /docs/
+
+# Session theory (local only)
+THEORY.MD

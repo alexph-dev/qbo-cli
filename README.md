@@ -13,6 +13,7 @@ Built for QuickBooks automation — giving AI agents (like [OpenClaw](https://op
 - **Financial reports** — P&L, Balance Sheet, Cash Flow, and more
 - **Raw API access** for anything the CLI doesn't cover
 - **Auto token refresh** — access tokens refresh transparently
+- **Flexible date input** — `YYYY-MM-DD`, `DD.MM.YYYY`, `DD/MM/YYYY` with `-b`/`-e` shorthands
 - **TSV and JSON output** — pipe to `jq`, `awk`, spreadsheets
 - **Flexible output flags** — use global `-f/--format` or subcommand `--format/-o`
 - **Sandbox support** for development and testing
@@ -217,6 +218,9 @@ qbo gl-report -c "John Smith" -a 125 --currency USD
 # Custom date range
 qbo gl-report -c "John Smith" -a "Revenue" --start 2025-01-01 --end 2025-12-31
 
+# Short flags and flexible date formats
+qbo gl-report -c "John Smith" -a 125 -b 01.01.2025 -e 31.12.2025
+
 # Structured JSON output
 qbo gl-report -a 125 --format json
 
@@ -288,7 +292,7 @@ qbo auth refresh
 - `ruff format --check` (code style)
 
 **Publish** — auto-publishes to PyPI when you create a GitHub Release:
-1. Bump version in `pyproject.toml`
+1. Bump version in `pyproject.toml` and `qbo_cli/__init__.py`
 2. Commit and push
 3. Create a GitHub Release (tag `vX.Y.Z`)
 4. Package is built and published automatically via [trusted publishing](https://docs.pypi.org/trusted-publishers/)
@@ -302,8 +306,9 @@ Contributions welcome. Please open an issue first to discuss what you'd like to 
 ```bash
 git clone https://github.com/alexph-dev/qbo-cli.git
 cd qbo-cli
-pip install -e .
-ruff check qbo_cli/   # lint before committing
+uv sync --all-extras   # or: pip install -e ".[test]"
+uv run pytest           # run tests
+uv run ruff check qbo_cli/   # lint before committing
 ```
 
 ## License
