@@ -22,8 +22,10 @@ Built for QuickBooks automation — giving AI agents (like [OpenClaw](https://op
 ## Installation
 
 ```bash
-pip install qbo-cli
+uv tool install qbo-cli
 ```
+
+Or with pip: `pip install qbo-cli`
 
 Requires Python 3.9+ on macOS or Linux (uses `fcntl` for file locking).
 
@@ -291,11 +293,13 @@ qbo auth refresh
 - `ruff check` (errors, warnings, import sorting)
 - `ruff format --check` (code style)
 
+**Tests** — runs on every push and PR to `main` (Python 3.9 + 3.12).
+
 **Publish** — auto-publishes to PyPI when you create a GitHub Release:
 1. Bump version in `pyproject.toml` and `qbo_cli/__init__.py`
 2. Commit and push
 3. Create a GitHub Release (tag `vX.Y.Z`)
-4. Package is built and published automatically via [trusted publishing](https://docs.pypi.org/trusted-publishers/)
+4. `uv build` + [trusted publishing](https://docs.pypi.org/trusted-publishers/) → PyPI
 
 > **First-time setup:** Add `qbo-cli` as a trusted publisher on PyPI → *Your projects* → *Publishing* → add GitHub publisher: `alexph-dev/qbo-cli`, workflow `publish.yml`, environment `pypi`.
 
@@ -306,8 +310,8 @@ Contributions welcome. Please open an issue first to discuss what you'd like to 
 ```bash
 git clone https://github.com/alexph-dev/qbo-cli.git
 cd qbo-cli
-uv sync --all-extras   # or: pip install -e ".[test]"
-uv run pytest           # run tests
+uv sync --extra test
+uv run pytest             # run tests
 uv run ruff check qbo_cli/   # lint before committing
 ```
 
