@@ -9,13 +9,14 @@ Built for QuickBooks automation — giving AI agents (like [OpenClaw](https://op
 - **OAuth 2.0 authentication** with local callback server or manual mode
 - **Query** entities using QBO's SQL-like syntax with automatic pagination
 - **Local text search** over query results (useful for fields not queryable server-side)
-- **CRUD operations** on any QBO entity (Customer, Invoice, Bill, etc.)
+- **CRUD + void operations** on any QBO entity (Customer, Invoice, Bill, etc.)
 - **Financial reports** — P&L, Balance Sheet, Cash Flow, and more
 - **Raw API access** for anything the CLI doesn't cover
 - **Auto token refresh** — access tokens refresh transparently
 - **Flexible date input** — `YYYY-MM-DD`, `DD.MM.YYYY`, `DD/MM/YYYY` with `-b`/`-e` shorthands
 - **TSV and JSON output** — pipe to `jq`, `awk`, spreadsheets
 - **Flexible output flags** — use global `-f/--format` or subcommand `--format/-o`
+- **Named profiles** (`prod`/`dev`) for credential isolation across environments
 - **Sandbox support** for development and testing
 - **File-locked token storage** — safe for concurrent use
 
@@ -179,6 +180,15 @@ qbo delete Invoice 1042
 ```
 
 The CLI fetches the entity first (to get the required `SyncToken`), then deletes it.
+
+### Void a transaction
+
+```bash
+qbo void Invoice 1042
+qbo void SalesReceipt 55
+```
+
+Void keeps the transaction on the books as $0 (preserving audit trail), unlike delete which removes it entirely. The CLI fetches the entity first, then posts with `?operation=void`.
 
 ### Run reports
 
