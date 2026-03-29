@@ -301,6 +301,7 @@ class TokenManager:
             legacy = QBO_DIR / "tokens.json"
             if self.config.profile == "prod" and legacy.exists():
                 legacy.rename(tp)
+                os.chmod(tp, 0o600)
                 err_print(f"Migrated {legacy} -> {tp}")
             else:
                 die(f"No tokens found for profile '{self.config.profile}'. Run: qbo auth init")
@@ -1794,7 +1795,7 @@ def _build_runtime(args) -> tuple[Config, TokenManager]:
     """Create runtime config and token manager for parsed args."""
     profile = _resolve_profile(args)
     config = Config(profile=profile)
-    if args.sandbox:
+    if args.sandbox and not args.profile:
         config.sandbox = True
     return config, TokenManager(config)
 

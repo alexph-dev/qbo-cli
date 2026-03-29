@@ -41,8 +41,12 @@ def create_test_customer(name: str = "TestCRUD") -> str:
 
 
 def delete_customer(cid: str) -> None:
-    """Best-effort cleanup of a test customer."""
-    qbo("delete", "Customer", cid)
+    """Best-effort deactivation of a test customer (QBO doesn't support hard delete)."""
+    r = qbo("get", "Customer", cid, "-o", "json")
+    if r.returncode == 0:
+        customer = json.loads(r.stdout).get("Customer", {})
+        customer["Active"] = False
+        qbo("update", "Customer", stdin=json.dumps(customer))
 
 
 # ─── Create edge cases ──────────────────────────────────────────────────────
@@ -64,11 +68,14 @@ def test_create_customer_minimal_fields():
 
 @pytest.mark.live
 def test_create_customer_missing_required_field():
-    """Create Customer with no DisplayName — QBO should reject."""
+    """Create Customer with no DisplayName — QBO may accept or reject."""
     body = json.dumps({"CompanyName": "NoDisplayName Corp"})
     r = qbo("create", "Customer", "-o", "json", stdin=body)
     # QBO may accept this (auto-generates DisplayName) or reject.
     # The test verifies the CLI doesn't crash either way.
+    if r.returncode == 0:
+        cid = json.loads(r.stdout)["Customer"]["Id"]
+        delete_customer(cid)
     assert r.returncode in (0, 1)
 
 
