@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import subprocess
+import time
 
 import pytest
 
@@ -33,9 +34,13 @@ def qbo_json(*args: str, stdin: str | None = None) -> dict | list:
     return json.loads(r.stdout)
 
 
+def _uid() -> str:
+    return str(int(time.time() * 1000))
+
+
 def create_test_customer(name: str = "TestCRUD") -> str:
     """Create a customer in sandbox, return its Id."""
-    body = json.dumps({"DisplayName": f"{name}_{id(name)}"})
+    body = json.dumps({"DisplayName": f"{name}_{_uid()}"})
     data = qbo_json("create", "Customer", stdin=body)
     return data["Customer"]["Id"]
 
@@ -55,7 +60,7 @@ def delete_customer(cid: str) -> None:
 @pytest.mark.live
 def test_create_customer_minimal_fields():
     """Create with only the required field (DisplayName)."""
-    name = f"Minimal_{id(test_create_customer_minimal_fields)}"
+    name = f"Minimal_{_uid()}"
     body = json.dumps({"DisplayName": name})
     data = qbo_json("create", "Customer", stdin=body)
     cid = data["Customer"]["Id"]
@@ -82,7 +87,7 @@ def test_create_customer_missing_required_field():
 @pytest.mark.live
 def test_create_customer_unicode_displayname():
     """Create with unicode characters in DisplayName."""
-    name = f"Test_Uni_Cafe\u0301_{id(test_create_customer_unicode_displayname)}"
+    name = f"Test_Uni_Cafe\u0301_{_uid()}"
     body = json.dumps({"DisplayName": name})
     data = qbo_json("create", "Customer", stdin=body)
     cid = data["Customer"]["Id"]
@@ -95,7 +100,7 @@ def test_create_customer_unicode_displayname():
 @pytest.mark.live
 def test_create_customer_extra_unknown_fields():
     """Extra fields should be ignored by QBO, not crash the CLI."""
-    name = f"ExtraFields_{id(test_create_customer_extra_unknown_fields)}"
+    name = f"ExtraFields_{_uid()}"
     body = json.dumps({
         "DisplayName": name,
         "TotallyFakeField": "should be ignored",
@@ -139,7 +144,7 @@ def test_update_with_stale_synctoken():
 @pytest.mark.live
 def test_update_preserves_unmodified_fields():
     """Update one field, verify other fields survive."""
-    name = f"Preserve_{id(test_update_preserves_unmodified_fields)}"
+    name = f"Preserve_{_uid()}"
     body = json.dumps({"DisplayName": name, "CompanyName": "OriginalCorp"})
     data = qbo_json("create", "Customer", stdin=body)
     cid = data["Customer"]["Id"]
@@ -255,7 +260,7 @@ def test_void_non_voidable_entity():
 @pytest.mark.live
 def test_create_get_roundtrip():
     """Create entity, get it back, verify fields match."""
-    name = f"Roundtrip_{id(test_create_get_roundtrip)}"
+    name = f"Roundtrip_{_uid()}"
     body = json.dumps({"DisplayName": name, "CompanyName": "RoundtripCo"})
     created = qbo_json("create", "Customer", stdin=body)
     cid = created["Customer"]["Id"]
@@ -271,7 +276,7 @@ def test_create_get_roundtrip():
 @pytest.mark.live
 def test_create_update_get_flow():
     """Create -> update -> get -> verify update applied."""
-    name = f"Flow_{id(test_create_update_get_flow)}"
+    name = f"Flow_{_uid()}"
     created = qbo_json("create", "Customer", stdin=json.dumps({"DisplayName": name}))
     cid = created["Customer"]["Id"]
     try:

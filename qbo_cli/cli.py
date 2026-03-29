@@ -226,6 +226,7 @@ class Config:
     """Load config from env vars → profiled config file → defaults."""
 
     def __init__(self, profile: str = "prod"):
+        profile = profile.lower()
         if not PROFILE_RE.match(profile):
             die(f"Invalid profile name '{profile}'. Use only letters, digits, hyphens, underscores.")
         self.profile: str = profile
