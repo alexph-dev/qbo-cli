@@ -74,6 +74,7 @@ def make_args(**overrides) -> argparse.Namespace:
         "output": None,
         "sql": "SELECT * FROM Customer",
         "max_pages": 100,
+        "list_reports": False,
     }
     defaults.update(overrides)
     return argparse.Namespace(**defaults)

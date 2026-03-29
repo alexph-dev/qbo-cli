@@ -275,6 +275,23 @@ class TestCmdReportList:
         for canonical in REPORT_REGISTRY:
             assert canonical in output
 
+    def test_list_flag_takes_precedence_over_report_type(self, fake_config, fake_token_mgr, capsys):
+        """--list prints report table and exits even when report_type is given."""
+        args = make_args(
+            command="report",
+            report_type="PnL",
+            list_reports=True,
+            start_date=None,
+            end_date=None,
+            date_macro=None,
+            params=[],
+            output="text",
+            format="text",
+        )
+        cmd_report(args, fake_config, fake_token_mgr)
+        out = capsys.readouterr().out
+        assert "Available reports:" in out
+
 
 class TestReportArgparse:
     def test_report_list_flag_parsed(self):
