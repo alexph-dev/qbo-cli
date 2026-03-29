@@ -1,5 +1,13 @@
 {
-  "client_id": "YOUR_CLIENT_ID",
-  "client_secret": "YOUR_CLIENT_SECRET",
-  "redirect_uri": "http://localhost:8844/callback"
+  "prod": {
+    "client_id": "YOUR_PRODUCTION_CLIENT_ID",
+    "client_secret": "YOUR_PRODUCTION_CLIENT_SECRET",
+    "redirect_uri": "http://localhost:8844/callback"
+  },
+  "dev": {
+    "client_id": "YOUR_DEVELOPMENT_CLIENT_ID",
+    "client_secret": "YOUR_DEVELOPMENT_CLIENT_SECRET",
+    "redirect_uri": "http://localhost:8844/callback",
+    "sandbox": true
+  }
 }

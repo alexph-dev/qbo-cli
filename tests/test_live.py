@@ -2,6 +2,9 @@
 
 Run with: pytest -m live -v
 These are excluded from CI by default via addopts in pyproject.toml.
+
+Non-destructive tests (query, report, get, gl-report) run against prod.
+Destructive tests (create, void, delete) run against sandbox via --sandbox.
 """
 
 from __future__ import annotations
@@ -198,23 +201,72 @@ def test_smoke_auth_status():
 
 
 @pytest.mark.live
-def test_live_void_invoice_lifecycle():
-    """Create a test Invoice, void it, then delete it for cleanup."""
-    # Find a customer to attach the invoice to
+def test_smoke_query_customers():
+    """Query customers list (prod, read-only)."""
+    result = subprocess.run(
+        ["qbo", "query", "SELECT Id, DisplayName FROM Customer MAXRESULTS 5", "-o", "json"],
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    assert result.returncode == 0, f"stderr: {result.stderr}"
+    data = json.loads(result.stdout)
+    assert isinstance(data, list)
+    if data:
+        assert "Id" in data[0]
+        assert "DisplayName" in data[0]
+
+
+# ─── Sandbox tests (destructive operations + dev profile) ───────────────────
+
+
+@pytest.mark.live
+def test_live_sandbox_query():
+    """Query CompanyInfo using sandbox profile."""
+    result = subprocess.run(
+        ["qbo", "--sandbox", "query", "SELECT Id FROM CompanyInfo", "-o", "json"],
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    assert result.returncode == 0, f"stderr: {result.stderr}"
+    data = json.loads(result.stdout)
+    assert isinstance(data, list)
+    assert len(data) >= 1
+
+
+@pytest.mark.live
+def test_live_sandbox_auth_status():
+    """Auth status works for sandbox/dev profile."""
+    result = subprocess.run(
+        ["qbo", "--sandbox", "auth", "status"],
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    assert result.returncode == 0, f"stderr: {result.stderr}"
+    assert "dev" in result.stdout
+    assert "sandbox" in result.stdout.lower()
+
+
+@pytest.mark.live
+def test_live_sandbox_void_invoice_lifecycle():
+    """Create a test Invoice, void it, then delete it (sandbox only)."""
+    # Find a customer in sandbox
     cust = subprocess.run(
-        ["qbo", "query", "SELECT Id FROM Customer MAXRESULTS 1", "-o", "json"],
+        ["qbo", "--sandbox", "query", "SELECT Id FROM Customer MAXRESULTS 1", "-o", "json"],
         capture_output=True,
         text=True,
         timeout=30,
     )
     assert cust.returncode == 0, f"stderr: {cust.stderr}"
     customers = json.loads(cust.stdout)
-    assert customers, "Need at least one Customer for invoice test"
+    assert customers, "Need at least one Customer in sandbox"
     cust_id = customers[0]["Id"]
 
-    # Find a zero-rate tax code for the test invoice
+    # Find a zero-rate tax code in sandbox
     tax = subprocess.run(
-        ["qbo", "query", "SELECT Id FROM TaxCode WHERE Name LIKE '%0%' MAXRESULTS 1", "-o", "json"],
+        ["qbo", "--sandbox", "query", "SELECT Id FROM TaxCode WHERE Name LIKE '%0%' MAXRESULTS 1", "-o", "json"],
         capture_output=True,
         text=True,
         timeout=30,
@@ -223,7 +275,7 @@ def test_live_void_invoice_lifecycle():
     tax_codes = json.loads(tax.stdout)
     tax_ref = {"value": tax_codes[0]["Id"]} if tax_codes else {"value": "NON"}
 
-    # Create a minimal test invoice
+    # Create a minimal test invoice in sandbox
     invoice_body = json.dumps({
         "CustomerRef": {"value": cust_id},
         "Line": [
@@ -238,7 +290,7 @@ def test_live_void_invoice_lifecycle():
         ],
     })
     create = subprocess.run(
-        ["qbo", "create", "Invoice", "-o", "json"],
+        ["qbo", "--sandbox", "create", "Invoice", "-o", "json"],
         input=invoice_body,
         capture_output=True,
         text=True,
@@ -250,7 +302,7 @@ def test_live_void_invoice_lifecycle():
 
     # Void the invoice
     void = subprocess.run(
-        ["qbo", "void", "Invoice", inv_id, "-o", "json"],
+        ["qbo", "--sandbox", "void", "Invoice", inv_id, "-o", "json"],
         capture_output=True,
         text=True,
         timeout=30,
@@ -261,26 +313,9 @@ def test_live_void_invoice_lifecycle():
 
     # Delete the voided invoice for cleanup
     delete = subprocess.run(
-        ["qbo", "delete", "Invoice", inv_id, "-o", "json"],
+        ["qbo", "--sandbox", "delete", "Invoice", inv_id, "-o", "json"],
         capture_output=True,
         text=True,
         timeout=30,
     )
     assert delete.returncode == 0, f"delete stderr: {delete.stderr}"
-
-
-@pytest.mark.live
-def test_smoke_query_customers():
-    """Query customers list."""
-    result = subprocess.run(
-        ["qbo", "query", "SELECT Id, DisplayName FROM Customer MAXRESULTS 5", "-o", "json"],
-        capture_output=True,
-        text=True,
-        timeout=30,
-    )
-    assert result.returncode == 0, f"stderr: {result.stderr}"
-    data = json.loads(result.stdout)
-    assert isinstance(data, list)
-    if data:
-        assert "Id" in data[0]
-        assert "DisplayName" in data[0]

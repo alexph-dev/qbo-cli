@@ -12,6 +12,7 @@ import pytest
 from qbo_cli.cli import (
     QBOClient,
     _resolve_fmt,
+    _resolve_profile,
     cmd_create,
     cmd_gl_report,
     cmd_query,
@@ -530,3 +531,131 @@ class TestMainGlobalFormat:
         fake_config.validate.assert_called_once()
         assert captured["args"].format == "json"
         assert captured["args"].output is None
+
+
+# ─── Profile resolution ──────────────────────────────────────────────────────
+
+
+class TestResolveProfile:
+    def test_profile_flag(self):
+        args = make_args(profile="dev", sandbox=False)
+        assert _resolve_profile(args) == "dev"
+
+    def test_sandbox_flag(self):
+        args = make_args(profile=None, sandbox=True)
+        assert _resolve_profile(args) == "dev"
+
+    def test_default_is_prod(self):
+        args = make_args(profile=None, sandbox=False)
+        with patch.dict("os.environ", {}, clear=False):
+            import os
+            old = os.environ.pop("QBO_PROFILE", None)
+            try:
+                assert _resolve_profile(args) == "prod"
+            finally:
+                if old is not None:
+                    os.environ["QBO_PROFILE"] = old
+
+    def test_env_var_fallback(self):
+        args = make_args(profile=None, sandbox=False)
+        with patch.dict("os.environ", {"QBO_PROFILE": "staging"}, clear=False):
+            assert _resolve_profile(args) == "staging"
+
+    def test_profile_flag_wins_over_sandbox(self):
+        args = make_args(profile="custom", sandbox=True)
+        assert _resolve_profile(args) == "custom"
+
+    def test_profile_flag_wins_over_env_var(self):
+        args = make_args(profile="custom", sandbox=False)
+        with patch.dict("os.environ", {"QBO_PROFILE": "other"}, clear=False):
+            assert _resolve_profile(args) == "custom"
+
+    def test_arbitrary_profile_name(self):
+        args = make_args(profile="my-company_1", sandbox=False)
+        assert _resolve_profile(args) == "my-company_1"
+
+
+# ─── auth setup (profiled config) ────────────────────────────────────────────
+
+
+class TestCmdAuthSetup:
+    def test_setup_writes_prod_profile(self, tmp_path, fake_config, fake_token_mgr):
+        from qbo_cli.cli import cmd_auth_setup
+        config_file = tmp_path / "config.json"
+        fake_config.profile = "prod"
+        args = make_args(command="auth", auth_command="setup")
+        with (
+            patch("qbo_cli.cli.CONFIG_PATH", config_file),
+            patch("qbo_cli.cli.QBO_DIR", tmp_path),
+            patch("builtins.input", side_effect=["new-id", "new-secret", ""]),
+        ):
+            cmd_auth_setup(args, fake_config, fake_token_mgr)
+        data = json.loads(config_file.read_text())
+        assert "prod" in data
+        assert data["prod"]["client_id"] == "new-id"
+        assert data["prod"]["client_secret"] == "new-secret"
+
+    def test_setup_writes_dev_profile_preserves_prod(self, tmp_path, fake_config, fake_token_mgr):
+        from qbo_cli.cli import cmd_auth_setup
+        config_file = tmp_path / "config.json"
+        config_file.write_text(json.dumps({"prod": {"client_id": "prod-id", "client_secret": "prod-secret"}}))
+        fake_config.profile = "dev"
+        args = make_args(command="auth", auth_command="setup")
+        with (
+            patch("qbo_cli.cli.CONFIG_PATH", config_file),
+            patch("qbo_cli.cli.QBO_DIR", tmp_path),
+            patch("builtins.input", side_effect=["dev-id", "dev-secret", ""]),
+        ):
+            cmd_auth_setup(args, fake_config, fake_token_mgr)
+        data = json.loads(config_file.read_text())
+        assert data["prod"]["client_id"] == "prod-id"
+        assert data["dev"]["client_id"] == "dev-id"
+
+    def test_setup_on_empty_config(self, tmp_path, fake_config, fake_token_mgr):
+        from qbo_cli.cli import cmd_auth_setup
+        config_file = tmp_path / "config.json"
+        fake_config.profile = "prod"
+        args = make_args(command="auth", auth_command="setup")
+        with (
+            patch("qbo_cli.cli.CONFIG_PATH", config_file),
+            patch("qbo_cli.cli.QBO_DIR", tmp_path),
+            patch("builtins.input", side_effect=["x", "y", ""]),
+        ):
+            cmd_auth_setup(args, fake_config, fake_token_mgr)
+        data = json.loads(config_file.read_text())
+        assert "prod" in data
+        assert data["prod"]["client_id"] == "x"
+        assert data["prod"]["client_secret"] == "y"
+
+    def test_setup_empty_creds_dies(self, tmp_path, fake_config, fake_token_mgr):
+        from qbo_cli.cli import cmd_auth_setup
+        config_file = tmp_path / "config.json"
+        fake_config.profile = "prod"
+        args = make_args(command="auth", auth_command="setup")
+        with (
+            patch("qbo_cli.cli.CONFIG_PATH", config_file),
+            patch("qbo_cli.cli.QBO_DIR", tmp_path),
+            patch("builtins.input", side_effect=["", "", ""]),
+        ):
+            with pytest.raises(SystemExit):
+                cmd_auth_setup(args, fake_config, fake_token_mgr)
+
+    def test_setup_migrates_flat_config(self, tmp_path, fake_config, fake_token_mgr, capsys):
+        from qbo_cli.cli import cmd_auth_setup
+        config_file = tmp_path / "config.json"
+        config_file.write_text(json.dumps({
+            "client_id": "old-id", "client_secret": "old-secret", "realm_id": "old-realm",
+        }))
+        fake_config.profile = "prod"
+        args = make_args(command="auth", auth_command="setup")
+        with (
+            patch("qbo_cli.cli.CONFIG_PATH", config_file),
+            patch("qbo_cli.cli.QBO_DIR", tmp_path),
+            patch("builtins.input", side_effect=["", "", ""]),  # accept old defaults
+        ):
+            cmd_auth_setup(args, fake_config, fake_token_mgr)
+        data = json.loads(config_file.read_text())
+        assert "prod" in data
+        assert data["prod"]["client_id"] == "old-id"
+        assert data["prod"]["realm_id"] == "old-realm"
+        assert "client_id" not in data  # no flat keys at top level

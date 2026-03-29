@@ -35,7 +35,6 @@ from qbo_cli import __version__
 
 QBO_DIR = Path.home() / ".qbo"
 CONFIG_PATH = QBO_DIR / "config.json"
-TOKENS_PATH = QBO_DIR / "tokens.json"
 AUTH_URL = "https://appcenter.intuit.com/connect/oauth2"
 TOKEN_URL = "https://oauth.platform.intuit.com/oauth2/v1/tokens/bearer"
 PROD_BASE = "https://quickbooks.api.intuit.com/v3/company"
@@ -48,6 +47,7 @@ DEFAULT_MAX_PAGES = 100  # safety cap
 MINOR_VERSION = 75  # QBO API minor version
 REFRESH_EXPIRY_WARN_DAYS = 14  # warn when refresh token < this many days left
 OUTPUT_FORMATS = ("text", "json", "tsv")
+PROFILE_RE = re.compile(r"^[a-zA-Z0-9_-]+$")
 GL_OUTPUT_FORMATS = ("text", "json", "txns", "expanded")
 FMT_HELP = "Output format: text (default), json, tsv"
 
@@ -223,9 +223,12 @@ def output_tsv(data) -> None:
 
 
 class Config:
-    """Load config from env vars → config file → defaults."""
+    """Load config from env vars → profiled config file → defaults."""
 
-    def __init__(self):
+    def __init__(self, profile: str = "prod"):
+        if not PROFILE_RE.match(profile):
+            die(f"Invalid profile name '{profile}'. Use only letters, digits, hyphens, underscores.")
+        self.profile: str = profile
         self.client_id: str = ""
         self.client_secret: str = ""
         self.redirect_uri: str = DEFAULT_REDIRECT
@@ -233,19 +236,37 @@ class Config:
         self.sandbox: bool = False
         self._load()
 
+    @property
+    def tokens_path(self) -> Path:
+        """Per-profile token file path."""
+        return QBO_DIR / f"tokens.{self.profile}.json"
+
     def _load(self):
-        file_cfg = {}
+        qbo_sandbox = os.environ.get("QBO_SANDBOX", "")
+        if qbo_sandbox.lower() in ("1", "true", "yes"):
+            die("QBO_SANDBOX is no longer supported. Use QBO_PROFILE=dev instead.")
+
+        file_cfg: dict = {}
         if CONFIG_PATH.exists():
             try:
-                file_cfg = json.loads(CONFIG_PATH.read_text())
+                raw = json.loads(CONFIG_PATH.read_text())
             except json.JSONDecodeError:
                 err_print("Warning: ~/.qbo/config.json is not valid JSON, ignoring.")
+                raw = {}
+
+            if "client_id" in raw:
+                err_print(
+                    "Warning: ~/.qbo/config.json uses legacy flat format.\n"
+                    "  Run 'qbo auth setup' to migrate to profiled format."
+                )
+            else:
+                file_cfg = raw.get(self.profile, {})
 
         self.client_id = os.environ.get("QBO_CLIENT_ID", file_cfg.get("client_id", ""))
         self.client_secret = os.environ.get("QBO_CLIENT_SECRET", file_cfg.get("client_secret", ""))
         self.redirect_uri = os.environ.get("QBO_REDIRECT_URI", file_cfg.get("redirect_uri", DEFAULT_REDIRECT))
         self.realm_id = os.environ.get("QBO_REALM_ID", file_cfg.get("realm_id", ""))
-        self.sandbox = os.environ.get("QBO_SANDBOX", file_cfg.get("sandbox", False))
+        self.sandbox = file_cfg.get("sandbox", False)
         if isinstance(self.sandbox, str):
             self.sandbox = self.sandbox.lower() in ("1", "true", "yes")
 
@@ -253,8 +274,8 @@ class Config:
         """Raise if missing required config."""
         if not self.client_id or not self.client_secret:
             die(
-                "Missing QBO credentials. Run setup first:\n"
-                "  qbo auth setup\n\n"
+                f"Missing QBO credentials for profile '{self.profile}'. Run setup first:\n"
+                f"  qbo --profile {self.profile} auth setup\n\n"
                 "Or set environment variables:\n"
                 "  export QBO_CLIENT_ID='your-client-id'\n"
                 "  export QBO_CLIENT_SECRET='your-client-secret'\n\n"
@@ -274,23 +295,31 @@ class TokenManager:
 
     def load(self) -> dict:
         """Load tokens from disk."""
-        if not TOKENS_PATH.exists():
-            die("No tokens found. Run: qbo auth init")
+        tp = self.config.tokens_path
+        if not tp.exists():
+            # Auto-migrate legacy tokens.json for prod profile
+            legacy = QBO_DIR / "tokens.json"
+            if self.config.profile == "prod" and legacy.exists():
+                legacy.rename(tp)
+                err_print(f"Migrated {legacy} -> {tp}")
+            else:
+                die(f"No tokens found for profile '{self.config.profile}'. Run: qbo auth init")
         try:
-            tokens = json.loads(TOKENS_PATH.read_text())
+            tokens = json.loads(tp.read_text())
         except json.JSONDecodeError:
-            die("Token file corrupted. Delete ~/.qbo/tokens.json and re-run: qbo auth init")
+            die(f"Token file corrupted. Delete {tp} and re-run: qbo auth init")
         self._tokens = tokens
         return tokens
 
     def save(self, tokens: dict):
         """Atomic write: temp file → rename. Permissions set before rename."""
+        tp = self.config.tokens_path
         QBO_DIR.mkdir(parents=True, exist_ok=True)
         QBO_DIR.chmod(0o700)
-        tmp = TOKENS_PATH.with_suffix(".tmp")
+        tmp = tp.with_suffix(".tmp")
         tmp.write_text(json.dumps(tokens, indent=2))
         tmp.chmod(0o600)  # set permissions BEFORE rename to avoid exposure window
-        tmp.rename(TOKENS_PATH)
+        tmp.rename(tp)
         self._tokens = tokens
 
     def get_valid_token(self) -> str:
@@ -316,7 +345,7 @@ class TokenManager:
 
     def _locked_refresh(self, tokens: dict) -> str:
         """Refresh with exclusive file lock to prevent concurrent refresh."""
-        lock_path = TOKENS_PATH.with_suffix(".lock")
+        lock_path = self.config.tokens_path.with_suffix(".lock")
         QBO_DIR.mkdir(parents=True, exist_ok=True)
 
         with open(lock_path, "w") as lock_file:
@@ -1359,12 +1388,15 @@ def _run_callback_server(auth_url: str, config: Config, port: int, expected_stat
 
 
 def cmd_auth_status(args, config, token_mgr):
+    """Show token status for active profile."""
     tokens = token_mgr.load()
     now = time.time()
     access_exp = tokens.get("expires_at", 0)
     refresh_exp = tokens.get("refresh_expires_at", 0)
 
     info = {
+        "profile": config.profile,
+        "sandbox": config.sandbox,
         "realm_id": tokens.get("realm_id"),
         "access_token_valid": access_exp > now,
         "access_token_expires": time.ctime(access_exp),
@@ -1384,21 +1416,30 @@ def cmd_auth_refresh(args, config, token_mgr):
 
 
 def cmd_auth_setup(args, config, token_mgr):
-    """Interactive config setup — creates ~/.qbo/config.json."""
-    print("QuickBooks Online CLI — Setup")
+    """Interactive config setup — creates/updates ~/.qbo/config.json with profiled format."""
+    profile = config.profile
+    print(f"QuickBooks Online CLI — Setup (profile: {profile})")
     print("=" * 40)
     print()
     print("You need a QuickBooks app from https://developer.intuit.com")
     print("Go to: Dashboard → Create an app → Get your Client ID & Secret")
     print()
 
-    # Load existing values as defaults
-    existing = {}
+    # Load existing config (full file, all profiles)
+    all_profiles: dict = {}
     if CONFIG_PATH.exists():
         try:
-            existing = json.loads(CONFIG_PATH.read_text())
+            raw = json.loads(CONFIG_PATH.read_text())
         except json.JSONDecodeError:
-            pass
+            raw = {}
+        # Detect flat format: preserve old values under 'prod' profile
+        if "client_id" in raw:
+            err_print("Migrating from legacy flat config to profiled format.")
+            all_profiles = {"prod": raw}
+        else:
+            all_profiles = raw
+
+    existing = all_profiles.get(profile, {})
 
     def prompt(label: str, key: str, default: str = "", secret: bool = False) -> str:
         current = existing.get(key, default)
@@ -1419,31 +1460,39 @@ def cmd_auth_setup(args, config, token_mgr):
     if not client_id or not client_secret:
         die("Client ID and Client Secret are required.")
 
-    cfg = {
+    profile_cfg: dict = {
         "client_id": client_id,
         "client_secret": client_secret,
         "redirect_uri": redirect_uri,
     }
 
-    # Preserve existing realm_id / sandbox if present
+    # Preserve existing realm_id if present in this profile
     if existing.get("realm_id"):
-        cfg["realm_id"] = existing["realm_id"]
+        profile_cfg["realm_id"] = existing["realm_id"]
+    # Sandbox: preserve existing, or default to True for 'dev' profile
     if existing.get("sandbox"):
-        cfg["sandbox"] = existing["sandbox"]
+        profile_cfg["sandbox"] = existing["sandbox"]
+    elif profile == "dev":
+        profile_cfg["sandbox"] = True
 
+    all_profiles[profile] = profile_cfg
+
+    # Atomic write
     QBO_DIR.mkdir(parents=True, exist_ok=True)
     QBO_DIR.chmod(0o700)
-    CONFIG_PATH.write_text(json.dumps(cfg, indent=2) + "\n")
-    os.chmod(CONFIG_PATH, 0o600)
+    tmp = CONFIG_PATH.with_suffix(".tmp")
+    tmp.write_text(json.dumps(all_profiles, indent=2) + "\n")
+    tmp.chmod(0o600)
+    tmp.rename(CONFIG_PATH)
 
     print()
-    print(f"✓ Config saved to {CONFIG_PATH}")
+    print(f"✓ Config saved to {CONFIG_PATH} (profile: {profile})")
     print()
     print("Next step — authorize with QuickBooks:")
-    print("  qbo auth init")
+    print(f"  qbo {f'--profile {profile} ' if profile != 'prod' else ''}auth init")
     print()
     print("On a headless server (no browser):")
-    print("  qbo auth init --manual")
+    print(f"  qbo {f'--profile {profile} ' if profile != 'prod' else ''}auth init --manual")
 
 
 def _resolve_fmt(args) -> str:
@@ -1598,7 +1647,8 @@ def _build_parser() -> tuple[argparse.ArgumentParser, argparse.ArgumentParser]:
     )
     parser.add_argument("--version", "-V", action="version", version=f"%(prog)s {__version__}")
     parser.add_argument("--format", "-f", choices=OUTPUT_FORMATS, default="text", help="Output format (default: text)")
-    parser.add_argument("--sandbox", action="store_true", help="Use sandbox API endpoint")
+    parser.add_argument("--profile", "-p", default=None, help="Config profile to use (default: prod)")
+    parser.add_argument("--sandbox", action="store_true", help="Use dev profile with sandbox API endpoint")
 
     subs = parser.add_subparsers(dest="command")
 
@@ -1731,9 +1781,19 @@ def _build_parser() -> tuple[argparse.ArgumentParser, argparse.ArgumentParser]:
     return parser, auth_p
 
 
+def _resolve_profile(args) -> str:
+    """Resolve profile name from CLI flags, env var, or default."""
+    if args.profile:
+        return args.profile
+    if args.sandbox:
+        return "dev"
+    return os.environ.get("QBO_PROFILE", "prod")
+
+
 def _build_runtime(args) -> tuple[Config, TokenManager]:
     """Create runtime config and token manager for parsed args."""
-    config = Config()
+    profile = _resolve_profile(args)
+    config = Config(profile=profile)
     if args.sandbox:
         config.sandbox = True
     return config, TokenManager(config)

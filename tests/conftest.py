@@ -30,6 +30,7 @@ def customers_fixture():
 def fake_config():
     """Config object without disk IO."""
     cfg = Config.__new__(Config)
+    cfg.profile = "prod"
     cfg.client_id = "test-client-id"
     cfg.client_secret = "test-client-secret"
     cfg.redirect_uri = "http://localhost:8844/callback"
@@ -68,6 +69,7 @@ def make_args(**overrides) -> argparse.Namespace:
     defaults = {
         "command": "query",
         "format": "text",
+        "profile": None,
         "sandbox": False,
         "output": None,
         "sql": "SELECT * FROM Customer",

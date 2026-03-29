@@ -38,3 +38,4 @@ htmlcov/
 
 # Session theory (local only)
 THEORY.MD
+.gstack/

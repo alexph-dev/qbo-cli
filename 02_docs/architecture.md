@@ -33,7 +33,9 @@ flowchart TD
 ### Parser and Dispatch
 
 - `main()` keeps orchestration small.
-- `_build_parser()` owns CLI shape.
+- `_build_parser()` owns CLI shape. Global flags: `--profile`/`-p`, `--sandbox`, `--format`/`-f`.
+- `_resolve_profile()` resolves profile from `--profile` > `--sandbox` (alias for `dev`) > `QBO_PROFILE` env > `prod`.
+- `_build_runtime()` constructs `Config(profile=...)` and `TokenManager`.
 - `_dispatch_command()` owns auth-vs-entity routing and credential validation.
 
 ### Command Glue
@@ -49,8 +51,11 @@ flowchart TD
 
 ### Auth and Tokens
 
-- `Config` loads credentials from env/config file/defaults.
-- `TokenManager` owns token persistence, file locking, refresh, and code exchange.
+- `Config(profile=name)` loads credentials from env vars > profiled config file section > defaults.
+  - Config file (`~/.qbo/config.json`) uses profiled format: `{"prod": {...}, "dev": {...}}`.
+  - `Config.tokens_path` returns per-profile token path: `~/.qbo/tokens.{profile}.json`.
+  - Legacy flat config (top-level `client_id`) is detected and warned; `auth setup` migrates it.
+- `TokenManager` owns token persistence, file locking, refresh, and code exchange. Uses `config.tokens_path` for all file operations.
 - OAuth browser/manual flow is handled by `cmd_auth_*` helpers and `_run_callback_server()`.
 
 ### API Layer

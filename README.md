@@ -44,24 +44,35 @@ Add a **Redirect URI** in your app's settings. For production apps, Intuit requi
 **Quickest: Interactive setup**
 
 ```bash
-qbo auth setup
+qbo auth setup                    # production profile (default)
+qbo --profile dev auth setup      # development/sandbox profile
 ```
 
 This prompts for your Client ID, Client Secret, and Redirect URI, then saves to `~/.qbo/config.json`.
+
+Intuit provides separate Development and Production keys per app. Use `--profile dev` for sandbox keys.
 
 **Option A: Environment variables** (for CI/scripts)
 
 ```bash
 export QBO_CLIENT_ID="your-client-id"
 export QBO_CLIENT_SECRET="your-client-secret"
+export QBO_PROFILE="dev"           # optional: select profile
 ```
 
 **Option B: Config file** (`~/.qbo/config.json`)
 
 ```json
 {
-  "client_id": "your-client-id",
-  "client_secret": "your-client-secret"
+  "prod": {
+    "client_id": "your-production-client-id",
+    "client_secret": "your-production-client-secret"
+  },
+  "dev": {
+    "client_id": "your-development-client-id",
+    "client_secret": "your-development-client-secret",
+    "sandbox": true
+  }
 }
 ```
 
@@ -70,10 +81,11 @@ Environment variables take precedence over the config file.
 ### 3. Authorize
 
 ```bash
-qbo auth init
+qbo auth init                     # production
+qbo --sandbox auth init           # development/sandbox
 ```
 
-This opens an OAuth flow — authorize in your browser, and tokens are saved to `~/.qbo/tokens.json` (chmod 600).
+This opens an OAuth flow — authorize in your browser, and tokens are saved per-profile (`~/.qbo/tokens.prod.json`, `~/.qbo/tokens.dev.json`, chmod 600).
 
 On headless servers, use manual mode:
 
@@ -249,29 +261,32 @@ qbo query "SELECT * FROM Customer" -f tsv
 qbo query "SELECT * FROM Customer" -f json | jq '.[].DisplayName'
 ```
 
-### Sandbox mode
+### Profiles and sandbox
 
 ```bash
-# Use sandbox API endpoint
+# Use dev profile (sandbox keys + sandbox API endpoint)
 qbo --sandbox query "SELECT * FROM Customer"
+qbo --profile dev query "SELECT * FROM Customer"    # equivalent
 
-# Or set via env/config
-export QBO_SANDBOX=true
+# Switch profile via env var
+export QBO_PROFILE=dev
+qbo query "SELECT * FROM Customer"
 ```
 
 ## Configuration Reference
 
 | Setting | Env Variable | Config Key | Default |
 |---------|-------------|------------|---------|
+| Profile | `QBO_PROFILE` | — | `prod` |
 | Client ID | `QBO_CLIENT_ID` | `client_id` | — |
 | Client Secret | `QBO_CLIENT_SECRET` | `client_secret` | — |
 | Redirect URI | `QBO_REDIRECT_URI` | `redirect_uri` | `http://localhost:8844/callback` |
 | Realm ID | `QBO_REALM_ID` | `realm_id` | From auth flow |
-| Sandbox mode | `QBO_SANDBOX` | `sandbox` | `false` |
+| Sandbox mode | — | `sandbox` | `false` |
 
-Config file location: `~/.qbo/config.json`
+Config file: `~/.qbo/config.json` (profiled format, see config.json.example)
 
-Token storage: `~/.qbo/tokens.json` (created automatically, chmod 600)
+Token storage: `~/.qbo/tokens.{profile}.json` (per-profile, created automatically, chmod 600)
 
 ## Token Management
 
