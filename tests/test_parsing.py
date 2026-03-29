@@ -34,7 +34,7 @@ class TestParseTxnFromRow:
         assert txn.date == "2025-01-15"
         assert txn.txn_type == "Invoice"
         assert txn.txn_id == "5001"
-        assert txn.amount == 5000.0
+        assert txn.amount == pytest.approx(5000.0)
 
     def test_beginning_balance_skip(self):
         cols = [{"value": "Beginning Balance"}]
@@ -177,7 +177,7 @@ class TestComputeSubtotal:
         idx = {}
         node = {"name": "Missing", "id": "999", "children": []}
         amt, cnt = _compute_subtotal(idx, node)
-        assert amt == 0.0
+        assert amt == pytest.approx(0.0)
         assert cnt == 0
 
 
@@ -188,7 +188,7 @@ class TestGLSectionCachedProperty:
     def test_total_amount_leaf(self):
         s = GLSection("Test", "1")
         s.direct_amount = 100.0
-        assert s.total_amount == 100.0
+        assert s.total_amount == pytest.approx(100.0)
 
     def test_total_amount_with_children(self):
         parent = GLSection("Parent", "1")
@@ -196,7 +196,7 @@ class TestGLSectionCachedProperty:
         child = GLSection("Child", "2")
         child.direct_amount = 30.0
         parent.children = [child]
-        assert parent.total_amount == 80.0
+        assert parent.total_amount == pytest.approx(80.0)
 
     def test_total_count(self):
         parent = GLSection("Parent", "1")

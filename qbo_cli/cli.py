@@ -355,11 +355,11 @@ class TokenManager:
             fcntl.flock(lock_file, fcntl.LOCK_EX)
             try:
                 # Re-read — another process may have refreshed
-                tokens = self.load()
-                if time.time() < tokens["expires_at"] - REFRESH_MARGIN_SEC:
-                    return tokens["access_token"]
+                current = self.load()
+                if time.time() < current["expires_at"] - REFRESH_MARGIN_SEC:
+                    return current["access_token"]
 
-                new_tokens = self._do_refresh(tokens)
+                new_tokens = self._do_refresh(current)
                 self.save(new_tokens)
                 return new_tokens["access_token"]
             finally:
@@ -1003,13 +1003,13 @@ def _build_report_lines(
         section = _find_gl_section(section_idx, node["name"], node.get("id", ""))
         amt = section.total_amount if section else 0.0
         cnt = section.total_count if section else 0
-        if cnt == 0 and amt == 0.0:
+        if cnt == 0 and not amt:
             return lines
         lines.append(_pad_line(f"{node['name']} ({cnt})", _format_amount(amt, currency), prefix))
         if expanded and section:
             _append_txn_lines(section.all_transactions, currency, indent + 1, lines)
     else:
-        if subtotal_cnt == 0 and subtotal_amt == 0.0:
+        if subtotal_cnt == 0 and not subtotal_amt:
             return lines
 
         section = _find_gl_section(section_idx, node["name"], node.get("id", ""))

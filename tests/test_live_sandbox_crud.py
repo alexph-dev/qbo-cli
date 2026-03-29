@@ -319,6 +319,6 @@ def test_invoice_create_void_verify_delete():
 
         # Verify voided state — Balance should be 0
         fetched = qbo_json("get", "Invoice", inv_id)
-        assert float(fetched["Invoice"]["Balance"]) == 0.0
+        assert float(fetched["Invoice"]["Balance"]) == pytest.approx(0.0)
     finally:
         qbo("delete", "Invoice", inv_id)

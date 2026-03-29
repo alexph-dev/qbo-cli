@@ -213,7 +213,7 @@ class TestTxnToDict:
         txn = GLTransaction(amount=0.0)
         d = _txn_to_dict(txn)
         assert d["date"] == ""
-        assert d["amount"] == 0.0
+        assert d["amount"] == pytest.approx(0.0)
 
 
 # ─── _collapse_tree ───────────────────────────────────────────────────────────
