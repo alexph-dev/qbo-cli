@@ -1,7 +1,7 @@
 ---
 title: "feat: Improve report subcommand UX with aliases, validation, and help"
 type: feat
-status: active
+status: completed
 date: 2026-03-29
 ---
 
@@ -71,7 +71,7 @@ resolve(name):
 
 ## Implementation Units
 
-- [ ] **Unit 1: Report registry and alias resolution**
+- [x] **Unit 1: Report registry and alias resolution**
 
 **Goal:** Add a report name registry with aliases and a resolution function
 
@@ -104,7 +104,7 @@ resolve(name):
 - All aliases resolve to correct canonical names
 - Unknown names pass through without error
 
-- [ ] **Unit 2: Integrate resolution into cmd_report and add --list**
+- [x] **Unit 2: Integrate resolution into cmd_report and add --list**
 
 **Goal:** Wire alias resolution into the report command and add `--list` flag
 
