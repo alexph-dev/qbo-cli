@@ -167,6 +167,13 @@ def calculate_total(items: list[dict], tax_rate: float = 0.0) -> float:
 - [ ] No commented-out code or debug statements
 - [ ] No hardcoded credentials
 
+## Before Releasing
+
+- [ ] Push and wait for **all** CI checks to pass (lint, tests, SonarCloud)
+- [ ] If any check fails: fix → push → wait again. Loop until all green.
+- [ ] Only create the GitHub release after all checks are green
+- [ ] If a release was created before checks passed, delete it, fix, and re-release
+
 ---
 
 **Remember:** Prioritize clarity and maintainability over cleverness. This is your core directive.
