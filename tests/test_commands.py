@@ -18,6 +18,7 @@ from qbo_cli.cli import (
     cmd_report,
     cmd_search,
     cmd_update,
+    cmd_void,
     main,
 )
 from tests.conftest import make_args
@@ -421,6 +422,27 @@ class TestCmdCreateUpdate:
         assert data["Customer"]["Id"] == "99"
 
 
+# ─── cmd_void ────────────────────────────────────────────────────────────────
+
+
+class TestCmdVoid:
+    def test_cmd_void_calls_client_void(self, fake_config, fake_token_mgr, capsys):
+        """Verify cmd_void calls client.void with entity and ID, emits result."""
+        client = QBOClient(fake_config, fake_token_mgr)
+        client.request = MagicMock(side_effect=[
+            {"Invoice": {"Id": "55", "SyncToken": "1", "TotalAmt": 100}},
+            {"Invoice": {"Id": "55", "SyncToken": "2", "TotalAmt": 0}},
+        ])
+        args = make_args(command="void", entity="Invoice", id="55", output="json", format="text")
+
+        with patch("qbo_cli.cli.QBOClient", return_value=client):
+            cmd_void(args, fake_config, fake_token_mgr)
+
+        assert client.request.call_count == 2
+        out = json.loads(capsys.readouterr().out)
+        assert out["Invoice"]["Id"] == "55"
+
+
 # ─── _resolve_fmt ─────────────────────────────────────────────────────────────
 
 
@@ -452,6 +474,7 @@ class TestSubcommandFormatAlias:
             (["qbo", "create", "Customer", "--format", "json"], "cmd_create"),
             (["qbo", "update", "Customer", "--format", "json"], "cmd_update"),
             (["qbo", "delete", "Customer", "1", "--format", "json"], "cmd_delete"),
+            (["qbo", "void", "Invoice", "1", "--format", "json"], "cmd_void"),
             (["qbo", "report", "ProfitAndLoss", "--format", "json"], "cmd_report"),
             (["qbo", "raw", "GET", "companyinfo/1", "--format", "json"], "cmd_raw"),
             (["qbo", "gl-report", "-a", "125", "--format", "json"], "cmd_gl_report"),

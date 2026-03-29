@@ -545,6 +545,12 @@ class QBOClient:
         entity_data = current.get(entity, current)
         return self.request("POST", entity.lower(), params={"operation": "delete"}, json_body=entity_data)
 
+    def void(self, entity: str, entity_id: str) -> dict:
+        """Void a transaction by ID (GET for SyncToken, then POST with operation=void)."""
+        current = self.get(entity, entity_id)
+        entity_data = current.get(entity, current)
+        return self.request("POST", entity.lower(), params={"operation": "void"}, json_body=entity_data)
+
     def report(self, report_type: str, params: dict | None = None) -> dict:
         return self.request("GET", f"reports/{report_type}", params=params)
 
@@ -1541,6 +1547,12 @@ def cmd_delete(args, config, token_mgr):
     _emit_result(result, args)
 
 
+def cmd_void(args, config, token_mgr):
+    client = _make_client(config, token_mgr)
+    result = client.void(args.entity, args.id)
+    _emit_result(result, args)
+
+
 def cmd_report(args, config, token_mgr):
     client = _make_client(config, token_mgr)
     result = client.report(args.report_type, _build_report_params(args))
@@ -1644,6 +1656,12 @@ def _build_parser() -> tuple[argparse.ArgumentParser, argparse.ArgumentParser]:
     delete_p.add_argument("id", help="Entity ID")
     _add_output_arg(delete_p)
 
+    # ── void ──
+    void_p = subs.add_parser("void", help="Void a transaction by ID")
+    void_p.add_argument("entity", help="Entity type")
+    void_p.add_argument("id", help="Entity ID")
+    _add_output_arg(void_p)
+
     # ── report ──
     report_p = subs.add_parser("report", help="Run a QBO report")
     report_p.add_argument("report_type", help="Report type (ProfitAndLoss, BalanceSheet, etc.)")
@@ -1744,6 +1762,7 @@ def _dispatch_command(args, auth_parser: argparse.ArgumentParser, config: Config
         "create": cmd_create,
         "update": cmd_update,
         "delete": cmd_delete,
+        "void": cmd_void,
         "report": cmd_report,
         "raw": cmd_raw,
         "gl-report": cmd_gl_report,

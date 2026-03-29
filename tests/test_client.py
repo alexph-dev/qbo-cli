@@ -151,3 +151,36 @@ class TestDelete:
         post_call = mock_client.request.call_args_list[1]
         assert post_call[0][0] == "POST"
         assert post_call[1]["params"]["operation"] == "delete"
+
+
+# ─── Void (GET + POST) ──────────────────────────────────────────────────────
+
+
+class TestVoid:
+    def test_void_gets_then_posts(self, mock_client):
+        """void() does GET to fetch entity, then POST with operation=void."""
+        mock_client.request.side_effect = [
+            {"Invoice": {"Id": "99", "SyncToken": "1", "TotalAmt": 100}},
+            {"Invoice": {"Id": "99", "SyncToken": "2", "TotalAmt": 0}},
+        ]
+        result = mock_client.void("Invoice", "99")
+
+        assert result == {"Invoice": {"Id": "99", "SyncToken": "2", "TotalAmt": 0}}
+        assert mock_client.request.call_count == 2
+        get_call = mock_client.request.call_args_list[0]
+        assert get_call[0] == ("GET", "invoice/99")
+        post_call = mock_client.request.call_args_list[1]
+        assert post_call[0][0] == "POST"
+        assert post_call[1]["params"]["operation"] == "void"
+
+    def test_void_unwraps_entity_data(self, mock_client):
+        """void() correctly unwraps entity wrapper before posting."""
+        entity_inner = {"Id": "7", "SyncToken": "0", "Line": []}
+        mock_client.request.side_effect = [
+            {"SalesReceipt": entity_inner},
+            {"SalesReceipt": {**entity_inner, "SyncToken": "1"}},
+        ]
+        mock_client.void("SalesReceipt", "7")
+
+        post_call = mock_client.request.call_args_list[1]
+        assert post_call[1]["json_body"] == entity_inner

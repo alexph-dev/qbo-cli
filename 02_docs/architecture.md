@@ -39,7 +39,7 @@ flowchart TD
 ### Command Glue
 
 - `cmd_query`, `cmd_search`, `cmd_get`, `cmd_create`, `cmd_update`, `cmd_delete`,
-  `cmd_report`, `cmd_raw`, `cmd_gl_report`
+  `cmd_void`, `cmd_report`, `cmd_raw`, `cmd_gl_report`
 - Shared helpers:
   - `_make_client()`
   - `_emit_result()`

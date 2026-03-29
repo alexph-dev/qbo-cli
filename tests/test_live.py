@@ -198,6 +198,78 @@ def test_smoke_auth_status():
 
 
 @pytest.mark.live
+def test_live_void_invoice_lifecycle():
+    """Create a test Invoice, void it, then delete it for cleanup."""
+    # Find a customer to attach the invoice to
+    cust = subprocess.run(
+        ["qbo", "query", "SELECT Id FROM Customer MAXRESULTS 1", "-o", "json"],
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    assert cust.returncode == 0, f"stderr: {cust.stderr}"
+    customers = json.loads(cust.stdout)
+    assert customers, "Need at least one Customer for invoice test"
+    cust_id = customers[0]["Id"]
+
+    # Find a zero-rate tax code for the test invoice
+    tax = subprocess.run(
+        ["qbo", "query", "SELECT Id FROM TaxCode WHERE Name LIKE '%0%' MAXRESULTS 1", "-o", "json"],
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    assert tax.returncode == 0, f"tax stderr: {tax.stderr}"
+    tax_codes = json.loads(tax.stdout)
+    tax_ref = {"value": tax_codes[0]["Id"]} if tax_codes else {"value": "NON"}
+
+    # Create a minimal test invoice
+    invoice_body = json.dumps({
+        "CustomerRef": {"value": cust_id},
+        "Line": [
+            {
+                "Amount": 1.00,
+                "DetailType": "SalesItemLineDetail",
+                "SalesItemLineDetail": {
+                    "ItemRef": {"value": "1"},
+                    "TaxCodeRef": tax_ref,
+                },
+            }
+        ],
+    })
+    create = subprocess.run(
+        ["qbo", "create", "Invoice", "-o", "json"],
+        input=invoice_body,
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    assert create.returncode == 0, f"create stderr: {create.stderr}"
+    created = json.loads(create.stdout)
+    inv_id = created["Invoice"]["Id"]
+
+    # Void the invoice
+    void = subprocess.run(
+        ["qbo", "void", "Invoice", inv_id, "-o", "json"],
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    assert void.returncode == 0, f"void stderr: {void.stderr}"
+    voided = json.loads(void.stdout)
+    assert voided["Invoice"]["Id"] == inv_id
+
+    # Delete the voided invoice for cleanup
+    delete = subprocess.run(
+        ["qbo", "delete", "Invoice", inv_id, "-o", "json"],
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    assert delete.returncode == 0, f"delete stderr: {delete.stderr}"
+
+
+@pytest.mark.live
 def test_smoke_query_customers():
     """Query customers list."""
     result = subprocess.run(
