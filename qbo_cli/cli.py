@@ -51,6 +51,41 @@ PROFILE_RE = re.compile(r"^[a-zA-Z0-9_-]+$")
 GL_OUTPUT_FORMATS = ("text", "json", "txns", "expanded")
 FMT_HELP = "Output format: text (default), json, tsv"
 
+# Canonical QBO report types with descriptions and short aliases.
+# Keys are canonical API names; values are (description, [aliases]).
+REPORT_REGISTRY: dict[str, tuple[str, list[str]]] = {
+    "ProfitAndLoss": ("Income and expenses summary", ["PnL", "P&L"]),
+    "ProfitAndLossDetail": ("Detailed income and expenses", ["PnLDetail"]),
+    "BalanceSheet": ("Assets, liabilities, and equity", ["BS"]),
+    "BalanceSheetDetail": ("Detailed balance sheet", ["BSDetail"]),
+    "CashFlow": ("Cash inflows and outflows", ["CF"]),
+    "GeneralLedger": ("All transactions by account", ["GL"]),
+    "TrialBalance": ("Debit and credit totals by account", ["TB"]),
+    "AccountList": ("Chart of accounts listing", ["Accounts", "CoA"]),
+    "TransactionList": ("All transactions flat list", ["TxnList"]),
+    "CustomerIncome": ("Income by customer", []),
+    "CustomerBalance": ("Outstanding balances by customer", []),
+    "CustomerBalanceDetail": ("Detailed customer balances", []),
+    "CustomerSales": ("Sales by customer", []),
+    "AgedReceivables": ("Outstanding receivables by age", ["AR"]),
+    "AgedReceivableDetail": ("Detailed aged receivables", ["ARDetail"]),
+    "AgedPayables": ("Outstanding payables by age", ["AP"]),
+    "AgedPayableDetail": ("Detailed aged payables", ["APDetail"]),
+    "VendorBalance": ("Outstanding balances by vendor", []),
+    "VendorBalanceDetail": ("Detailed vendor balances", []),
+    "VendorExpenses": ("Expenses by vendor", []),
+    "ItemSales": ("Sales by item/product", []),
+    "DepartmentSales": ("Sales by department", []),
+    "ClassSales": ("Sales by class", []),
+}
+
+# Build case-insensitive alias -> canonical name lookup.
+_REPORT_ALIAS_MAP: dict[str, str] = {}
+for _canonical, (_desc, _aliases) in REPORT_REGISTRY.items():
+    _REPORT_ALIAS_MAP[_canonical.lower()] = _canonical
+    for _alias in _aliases:
+        _REPORT_ALIAS_MAP[_alias.lower()] = _canonical
+
 
 # ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -70,6 +105,27 @@ def die(msg: str, code: int = 1) -> NoReturn:
 
 def err_print(msg: str) -> None:
     print(msg, file=sys.stderr)
+
+
+def _resolve_report_name(name: str) -> str:
+    """Resolve a report name or alias to the canonical QBO API report name.
+
+    Args:
+        name: Report name or alias (case-insensitive)
+
+    Returns:
+        Canonical report name for the QBO API
+    """
+    canonical = _REPORT_ALIAS_MAP.get(name.lower())
+    if canonical:
+        return canonical
+    known = ", ".join(sorted(REPORT_REGISTRY))
+    err_print(
+        f"Warning: '{name}' is not a known report type. "
+        f"Passing through to API.\nKnown reports: {known}\n"
+        f"Run 'qbo report --list' to see all reports with aliases."
+    )
+    return name
 
 
 def _unwrap_entity_dict(data: dict) -> dict:
@@ -1604,9 +1660,25 @@ def cmd_void(args, config, token_mgr):
     _emit_result(result, args)
 
 
+def _format_report_list() -> str:
+    """Format the report registry as a readable table for --list output."""
+    lines = []
+    for canonical, (desc, aliases) in REPORT_REGISTRY.items():
+        alias_str = f" ({', '.join(aliases)})" if aliases else ""
+        lines.append(f"  {canonical:<28} {desc}{alias_str}")
+    return "Available reports:\n" + "\n".join(lines)
+
+
 def cmd_report(args, config, token_mgr):
+    """Run a QBO report by name or alias."""
+    if args.list_reports:
+        print(_format_report_list())
+        return
+    if not args.report_type:
+        die(f"Report type required.\n\n{_format_report_list()}")
+    report_name = _resolve_report_name(args.report_type)
     client = _make_client(config, token_mgr)
-    result = client.report(args.report_type, _build_report_params(args))
+    result = client.report(report_name, _build_report_params(args))
     _emit_result(result, args)
 
 
@@ -1715,8 +1787,18 @@ def _build_parser() -> tuple[argparse.ArgumentParser, argparse.ArgumentParser]:
     _add_output_arg(void_p)
 
     # ── report ──
-    report_p = subs.add_parser("report", help="Run a QBO report")
-    report_p.add_argument("report_type", help="Report type (ProfitAndLoss, BalanceSheet, etc.)")
+    report_p = subs.add_parser(
+        "report",
+        help="Run a QBO report (use --list to see available reports)",
+    )
+    report_p.add_argument(
+        "report_type",
+        nargs="?",
+        help="Report name or alias (e.g. ProfitAndLoss, PnL, GL). Use --list to see all.",
+    )
+    report_p.add_argument(
+        "--list", dest="list_reports", action="store_true", help="List available reports with aliases"
+    )
     report_p.add_argument("--start-date", help="Start date (YYYY-MM-DD)")
     report_p.add_argument("--end-date", help="End date (YYYY-MM-DD)")
     report_p.add_argument("--date-macro", help='Date macro (e.g. "Last Month", "This Year")')

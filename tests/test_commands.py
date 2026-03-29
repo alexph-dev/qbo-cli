@@ -10,9 +10,13 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from qbo_cli.cli import (
+    _REPORT_ALIAS_MAP,
+    REPORT_REGISTRY,
     QBOClient,
+    _format_report_list,
     _resolve_fmt,
     _resolve_profile,
+    _resolve_report_name,
     cmd_create,
     cmd_gl_report,
     cmd_query,
@@ -132,6 +136,7 @@ class TestCmdReport:
             params=[],
             output="json",
             format="text",
+            list_reports=False,
         )
 
         with patch("qbo_cli.cli.QBOClient", return_value=client):
@@ -154,6 +159,7 @@ class TestCmdReport:
             params=["accounting_method=Cash"],
             output="json",
             format="text",
+            list_reports=False,
         )
 
         with patch("qbo_cli.cli.QBOClient", return_value=client):
@@ -164,6 +170,139 @@ class TestCmdReport:
         params = call_kwargs.get("params", {})
         assert params["date_macro"] == "Last Year"
         assert params["accounting_method"] == "Cash"
+
+
+# ─── report aliases and --list ────────────────────────────────────────────────
+
+
+class TestReportAliases:
+    def test_canonical_name_resolves_to_itself(self):
+        assert _resolve_report_name("ProfitAndLoss") == "ProfitAndLoss"
+
+    def test_short_alias_resolves(self):
+        assert _resolve_report_name("PnL") == "ProfitAndLoss"
+        assert _resolve_report_name("GL") == "GeneralLedger"
+        assert _resolve_report_name("BS") == "BalanceSheet"
+        assert _resolve_report_name("CF") == "CashFlow"
+        assert _resolve_report_name("TB") == "TrialBalance"
+        assert _resolve_report_name("AR") == "AgedReceivables"
+        assert _resolve_report_name("AP") == "AgedPayables"
+
+    def test_case_insensitive_resolution(self, capsys):
+        assert _resolve_report_name("pnl") == "ProfitAndLoss"
+        assert _resolve_report_name("gl") == "GeneralLedger"
+        assert _resolve_report_name("profitandloss") == "ProfitAndLoss"
+        assert _resolve_report_name("BALANCESHEET") == "BalanceSheet"
+
+    def test_unknown_name_passes_through_with_warning(self, capsys):
+        result = _resolve_report_name("CustomReport")
+        assert result == "CustomReport"
+        stderr = capsys.readouterr().err
+        assert "not a known report type" in stderr
+        assert "qbo report --list" in stderr
+
+    def test_all_registry_entries_in_alias_map(self):
+        for canonical in REPORT_REGISTRY:
+            assert canonical.lower() in _REPORT_ALIAS_MAP
+            assert _REPORT_ALIAS_MAP[canonical.lower()] == canonical
+
+    def test_all_aliases_in_alias_map(self):
+        for canonical, (_desc, aliases) in REPORT_REGISTRY.items():
+            for alias in aliases:
+                assert alias.lower() in _REPORT_ALIAS_MAP
+                assert _REPORT_ALIAS_MAP[alias.lower()] == canonical
+
+
+class TestCmdReportList:
+    def test_list_reports_prints_table(self, fake_config, fake_token_mgr, capsys):
+        args = make_args(
+            command="report",
+            report_type=None,
+            list_reports=True,
+            start_date=None,
+            end_date=None,
+            date_macro=None,
+            params=[],
+            output="text",
+            format="text",
+        )
+        cmd_report(args, fake_config, fake_token_mgr)
+        out = capsys.readouterr().out
+        assert "Available reports:" in out
+        assert "ProfitAndLoss" in out
+        assert "GeneralLedger" in out
+        assert "(GL)" in out
+        assert "(PnL, P&L)" in out
+
+    def test_missing_report_type_shows_error_and_list(self, fake_config, fake_token_mgr):
+        args = make_args(
+            command="report",
+            report_type=None,
+            list_reports=False,
+            start_date=None,
+            end_date=None,
+            date_macro=None,
+            params=[],
+            output="text",
+            format="text",
+        )
+        with pytest.raises(SystemExit) as exc_info:
+            cmd_report(args, fake_config, fake_token_mgr)
+        assert exc_info.value.code == 1
+
+    def test_alias_resolves_before_api_call(self, fake_config, fake_token_mgr, capsys):
+        """Verify alias is resolved to canonical name before calling client.report."""
+        client = QBOClient(fake_config, fake_token_mgr)
+        client.request = MagicMock(return_value={"Header": {"ReportName": "GeneralLedger"}, "Rows": {}})
+        args = make_args(
+            command="report",
+            report_type="GL",
+            start_date=None,
+            end_date=None,
+            date_macro=None,
+            params=[],
+            output="json",
+            format="text",
+            list_reports=False,
+        )
+        with patch("qbo_cli.cli.QBOClient", return_value=client):
+            cmd_report(args, fake_config, fake_token_mgr)
+        call_args = client.request.call_args
+        assert "reports/GeneralLedger" in call_args[0][1]
+
+    def test_format_report_list_includes_all_entries(self):
+        output = _format_report_list()
+        for canonical in REPORT_REGISTRY:
+            assert canonical in output
+
+
+class TestReportArgparse:
+    def test_report_list_flag_parsed(self):
+        """Verify --list flag is parsed by argparse."""
+        with patch("qbo_cli.cli.cmd_report") as mock_cmd, patch.object(sys, "argv", ["qbo", "report", "--list"]):
+            mock_cmd.return_value = None
+            try:
+                main()
+            except SystemExit:
+                pass
+            if mock_cmd.called:
+                args = mock_cmd.call_args[0][0]
+                assert args.list_reports is True
+
+    def test_report_alias_parsed_as_report_type(self):
+        """Verify alias is captured as report_type positional arg."""
+        with (
+            patch("qbo_cli.cli.cmd_report") as mock_cmd,
+            patch.object(sys, "argv", ["qbo", "report", "PnL", "-o", "json"]),
+        ):
+            mock_cmd.return_value = None
+            try:
+                main()
+            except SystemExit:
+                pass
+            if mock_cmd.called:
+                args = mock_cmd.call_args[0][0]
+                assert args.report_type == "PnL"
 
 
 # ─── cmd_gl_report ────────────────────────────────────────────────────────────
@@ -430,10 +569,12 @@ class TestCmdVoid:
     def test_cmd_void_calls_client_void(self, fake_config, fake_token_mgr, capsys):
         """Verify cmd_void calls client.void with entity and ID, emits result."""
         client = QBOClient(fake_config, fake_token_mgr)
-        client.request = MagicMock(side_effect=[
-            {"Invoice": {"Id": "55", "SyncToken": "1", "TotalAmt": 100}},
-            {"Invoice": {"Id": "55", "SyncToken": "2", "TotalAmt": 0}},
-        ])
+        client.request = MagicMock(
+            side_effect=[
+                {"Invoice": {"Id": "55", "SyncToken": "1", "TotalAmt": 100}},
+                {"Invoice": {"Id": "55", "SyncToken": "2", "TotalAmt": 0}},
+            ]
+        )
         args = make_args(command="void", entity="Invoice", id="55", output="json", format="text")
 
         with patch("qbo_cli.cli.QBOClient", return_value=client):
@@ -549,6 +690,7 @@ class TestResolveProfile:
         args = make_args(profile=None, sandbox=False)
         with patch.dict("os.environ", {}, clear=False):
             import os
+
             old = os.environ.pop("QBO_PROFILE", None)
             try:
                 assert _resolve_profile(args) == "prod"
@@ -581,6 +723,7 @@ class TestResolveProfile:
 class TestCmdAuthSetup:
     def test_setup_writes_prod_profile(self, tmp_path, fake_config, fake_token_mgr):
         from qbo_cli.cli import cmd_auth_setup
+
         config_file = tmp_path / "config.json"
         fake_config.profile = "prod"
         args = make_args(command="auth", auth_command="setup")
@@ -597,6 +740,7 @@ class TestCmdAuthSetup:
 
     def test_setup_writes_dev_profile_preserves_prod(self, tmp_path, fake_config, fake_token_mgr):
         from qbo_cli.cli import cmd_auth_setup
+
         config_file = tmp_path / "config.json"
         config_file.write_text(json.dumps({"prod": {"client_id": "prod-id", "client_secret": "prod-secret"}}))
         fake_config.profile = "dev"
@@ -613,6 +757,7 @@ class TestCmdAuthSetup:
 
     def test_setup_on_empty_config(self, tmp_path, fake_config, fake_token_mgr):
         from qbo_cli.cli import cmd_auth_setup
+
         config_file = tmp_path / "config.json"
         fake_config.profile = "prod"
         args = make_args(command="auth", auth_command="setup")
@@ -629,6 +774,7 @@ class TestCmdAuthSetup:
 
     def test_setup_empty_creds_dies(self, tmp_path, fake_config, fake_token_mgr):
         from qbo_cli.cli import cmd_auth_setup
+
         config_file = tmp_path / "config.json"
         fake_config.profile = "prod"
         args = make_args(command="auth", auth_command="setup")
@@ -642,10 +788,17 @@ class TestCmdAuthSetup:
 
     def test_setup_migrates_flat_config(self, tmp_path, fake_config, fake_token_mgr, capsys):
         from qbo_cli.cli import cmd_auth_setup
+
         config_file = tmp_path / "config.json"
-        config_file.write_text(json.dumps({
-            "client_id": "old-id", "client_secret": "old-secret", "realm_id": "old-realm",
-        }))
+        config_file.write_text(
+            json.dumps(
+                {
+                    "client_id": "old-id",
+                    "client_secret": "old-secret",
+                    "realm_id": "old-realm",
+                }
+            )
+        )
         fake_config.profile = "prod"
         args = make_args(command="auth", auth_command="setup")
         with (
