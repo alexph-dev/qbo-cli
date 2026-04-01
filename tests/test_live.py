@@ -111,7 +111,7 @@ def test_smoke_gl_report_text():
     acct_id = data[0]["Id"]
 
     result = subprocess.run(
-        ["qbo", "gl-report", "-a", acct_id, "--start", "2025-01-01", "--end", "2025-12-31"],
+        ["qbo", "gl-report", "-a", acct_id, "--start", "2025-01-01", "--end", "2025-01-31"],
         capture_output=True,
         text=True,
         timeout=30,
@@ -136,7 +136,7 @@ def test_smoke_gl_report_json():
     acct_id = acct_list[0]["Id"]
 
     result = subprocess.run(
-        ["qbo", "gl-report", "-a", acct_id, "--start", "2024-01-01", "--end", "2025-12-31", "-o", "json"],
+        ["qbo", "gl-report", "-a", acct_id, "--start", "2025-01-01", "--end", "2025-01-31", "-o", "json"],
         capture_output=True,
         text=True,
         timeout=60,
