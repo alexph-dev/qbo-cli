@@ -104,7 +104,7 @@ class QBOClient:
 
         def _extract_entities(data: dict) -> list:
             qr = data.get("QueryResponse", {})
-            for key, val in qr.items():
+            for val in qr.values():
                 if isinstance(val, list):
                     return val
             return []
