@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import functools
 from collections import defaultdict
+from dataclasses import dataclass
 from datetime import datetime
 
 from qbo_cli.cli_options import _make_client, _parse_date, _resolve_fmt
@@ -360,6 +361,15 @@ def _compute_subtotal(section_idx: dict[str, GLSection], node: dict) -> tuple[fl
     return total_amt, total_cnt
 
 
+@dataclass(frozen=True)
+class _RenderCtx:
+    """Bundle of values that travel together through the GL render pipeline."""
+
+    section_idx: dict[str, GLSection]
+    currency: str
+    expanded: bool
+
+
 def _format_txn_lines(txns: list[GLTransaction], currency: str, indent: int) -> list[str]:
     """Return formatted transaction lines (sorted by date) for ``txns``."""
     prefix = "  " * indent
@@ -373,15 +383,9 @@ def _format_txn_lines(txns: list[GLTransaction], currency: str, indent: int) -> 
     ]
 
 
-def _render_node_lines(
-    section_idx: dict[str, GLSection],
-    node: dict,
-    currency: str,
-    indent: int,
-    expanded: bool,
-) -> list[str]:
+def _render_node_lines(ctx: _RenderCtx, node: dict, indent: int) -> list[str]:
     """Pure renderer: return the lines for ``node`` and its descendants."""
-    section = _find_gl_section(section_idx, node["name"], node.get("id", ""))
+    section = _find_gl_section(ctx.section_idx, node["name"], node.get("id", ""))
     prefix = "  " * indent
 
     # Leaf node: emit a single padded line plus optional expanded txns.
@@ -389,29 +393,29 @@ def _render_node_lines(
         amt, cnt = _total_pair(section)
         if cnt == 0 and not amt:
             return []
-        out = [_pad_line(f"{node['name']} ({cnt})", _format_amount(amt, currency), prefix)]
-        if expanded and section:
-            out.extend(_format_txn_lines(section.all_transactions, currency, indent + 1))
+        out = [_pad_line(f"{node['name']} ({cnt})", _format_amount(amt, ctx.currency), prefix)]
+        if ctx.expanded and section:
+            out.extend(_format_txn_lines(section.all_transactions, ctx.currency, indent + 1))
         return out
 
     # Branch node: header + recursive children + subtotal footer.
-    subtotal_amt, subtotal_cnt = _compute_subtotal(section_idx, node)
+    subtotal_amt, subtotal_cnt = _compute_subtotal(ctx.section_idx, node)
     if subtotal_cnt == 0 and not subtotal_amt:
         return []
 
     own_amt, own_cnt = _direct_pair(section)
     out = []
     if own_cnt > 0:
-        out.append(_pad_line(f"{node['name']} ({own_cnt})", _format_amount(own_amt, currency), prefix))
-        if expanded and section:
-            out.extend(_format_txn_lines(section.transactions, currency, indent + 1))
+        out.append(_pad_line(f"{node['name']} ({own_cnt})", _format_amount(own_amt, ctx.currency), prefix))
+        if ctx.expanded and section:
+            out.extend(_format_txn_lines(section.transactions, ctx.currency, indent + 1))
     else:
         out.append(f"{prefix}{node['name']}")
 
     for child in node["children"]:
-        out.extend(_render_node_lines(section_idx, child, currency, indent + 1, expanded))
+        out.extend(_render_node_lines(ctx, child, indent + 1))
 
-    out.append(_pad_line(f"Total for {node['name']}", _format_amount(subtotal_amt, currency), prefix))
+    out.append(_pad_line(f"Total for {node['name']}", _format_amount(subtotal_amt, ctx.currency), prefix))
     return out
 
 
@@ -419,20 +423,11 @@ def _build_report_lines(
     section_idx: dict[str, GLSection],
     node: dict,
     currency: str,
-    indent: int = 0,
-    lines: list | None = None,
     expanded: bool = False,
 ) -> list[str]:
-    """Render a hierarchical GL report rooted at ``node`` into text lines.
-
-    Accepts an optional ``lines`` accumulator for backward compatibility:
-    callers may pre-seed a header and pass it in to be appended in place. The
-    return value is the same list (or a fresh one when ``lines is None``).
-    """
-    if lines is None:
-        lines = []
-    lines.extend(_render_node_lines(section_idx, node, currency, indent, expanded))
-    return lines
+    """Render a hierarchical GL report rooted at ``node`` into text lines."""
+    ctx = _RenderCtx(section_idx=section_idx, currency=currency, expanded=expanded)
+    return _render_node_lines(ctx, node, indent=0)
 
 
 def _build_txns_report(section_idx: dict[str, GLSection], node: dict, currency: str) -> list[str]:
@@ -719,7 +714,7 @@ def cmd_gl_report(args, config, token_mgr):
 
     expanded = out_mode == "expanded"
     lines = [title, date_range, ""]
-    _build_report_lines(section_idx, account_tree, currency, indent=0, lines=lines, expanded=expanded)
+    lines.extend(_build_report_lines(section_idx, account_tree, currency, expanded=expanded))
     lines.append("")
     lines.append(_pad_line("TOTAL", _format_amount(total_amt, currency)))
     print("\n".join(lines))
