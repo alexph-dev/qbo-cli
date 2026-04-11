@@ -541,7 +541,7 @@ class TestCmdCreateUpdate:
         body = {"DisplayName": "New Corp"}
         with (
             patch("qbo_cli.cli_options.QBOClient", return_value=client),
-            patch("qbo_cli.cli._read_stdin_json", return_value=body),
+            patch("qbo_cli.commands._read_stdin_json", return_value=body),
         ):
             cmd_create(args, fake_config, fake_token_mgr)
 
@@ -557,7 +557,7 @@ class TestCmdCreateUpdate:
         body = {"Id": "1", "DisplayName": "Updated Corp", "SyncToken": "0"}
         with (
             patch("qbo_cli.cli_options.QBOClient", return_value=client),
-            patch("qbo_cli.cli._read_stdin_json", return_value=body),
+            patch("qbo_cli.commands._read_stdin_json", return_value=body),
         ):
             cmd_update(args, fake_config, fake_token_mgr)
 
@@ -571,7 +571,7 @@ class TestCmdCreateUpdate:
 
         with (
             patch("qbo_cli.cli_options.QBOClient", return_value=client),
-            patch("qbo_cli.cli._read_stdin_json", return_value={"DisplayName": "New Corp"}),
+            patch("qbo_cli.commands._read_stdin_json", return_value={"DisplayName": "New Corp"}),
         ):
             cmd_create(args, fake_config, fake_token_mgr)
 
