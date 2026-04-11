@@ -321,7 +321,7 @@ qbo auth refresh
 **Tests** — runs on every push and PR to `main` (Python 3.9 + 3.12).
 
 **Publish** — auto-publishes to PyPI when you create a GitHub Release:
-1. Bump version in `pyproject.toml` and `qbo_cli/__init__.py`
+1. Bump version in `pyproject.toml` (single source of truth — `qbo_cli/__init__.py` reads it via `importlib.metadata`)
 2. Commit and push
 3. Create a GitHub Release (tag `vX.Y.Z`)
 4. `uv build` + [trusted publishing](https://docs.pypi.org/trusted-publishers/) → PyPI
