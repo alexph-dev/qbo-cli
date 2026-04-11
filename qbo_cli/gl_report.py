@@ -374,50 +374,26 @@ def _render_node_lines(
     section = _find_gl_section(section_idx, node["name"], node.get("id", ""))
     prefix = "  " * indent
 
+    # Leaf node: emit a single padded line plus optional expanded txns.
     if not node["children"]:
-        return _render_leaf_node(section, node, currency, prefix, indent, expanded)
+        amt = section.total_amount if section else 0.0
+        cnt = section.total_count if section else 0
+        if cnt == 0 and not amt:
+            return []
+        out = [_pad_line(f"{node['name']} ({cnt})", _format_amount(amt, currency), prefix)]
+        if expanded and section:
+            out.extend(_format_txn_lines(section.all_transactions, currency, indent + 1))
+        return out
 
+    # Branch node: header + recursive children + subtotal footer.
     subtotal_amt, subtotal_cnt = _compute_subtotal(section_idx, node)
     if subtotal_cnt == 0 and not subtotal_amt:
         return []
 
-    return _render_branch_node(section_idx, section, node, currency, prefix, indent, expanded, subtotal_amt)
-
-
-def _render_leaf_node(
-    section: GLSection | None,
-    node: dict,
-    currency: str,
-    prefix: str,
-    indent: int,
-    expanded: bool,
-) -> list[str]:
-    """Render a leaf account node (no children)."""
-    amt = section.total_amount if section else 0.0
-    cnt = section.total_count if section else 0
-    if cnt == 0 and not amt:
-        return []
-    out = [_pad_line(f"{node['name']} ({cnt})", _format_amount(amt, currency), prefix)]
-    if expanded and section:
-        out.extend(_format_txn_lines(section.all_transactions, currency, indent + 1))
-    return out
-
-
-def _render_branch_node(
-    section_idx: dict[str, GLSection],
-    section: GLSection | None,
-    node: dict,
-    currency: str,
-    prefix: str,
-    indent: int,
-    expanded: bool,
-    subtotal_amt: float,
-) -> list[str]:
-    """Render an account node that has children."""
     own_cnt = section.direct_count if section else 0
     own_amt = section.direct_amount if section else 0.0
 
-    out: list[str] = []
+    out = []
     if own_cnt > 0:
         out.append(_pad_line(f"{node['name']} ({own_cnt})", _format_amount(own_amt, currency), prefix))
         if expanded and section:
