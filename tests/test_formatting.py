@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 
-from qbo_cli.output import _output_kv, output, output_text, output_tsv
+from qbo_cli.output import _output_entity, output, output_text, output_tsv
 
 # ─── output_text ──────────────────────────────────────────────────────────────
 
@@ -89,23 +89,23 @@ class TestOutputTsv:
         assert "Id\tName" in captured
 
 
-# ─── _output_kv ──────────────────────────────────────────────────────────────
+# ─── _output_entity ──────────────────────────────────────────────────────────
 
 
-class TestOutputKv:
+class TestOutputEntity:
     def test_flat_dict(self, capsys):
-        _output_kv({"Name": "Acme", "Id": "1"})
+        _output_entity({"Name": "Acme", "Id": "1"})
         captured = capsys.readouterr().out
         assert "Name" in captured
         assert "Acme" in captured
 
     def test_nested_dict_inline(self, capsys):
-        _output_kv({"Name": "Acme", "Addr": {"City": "NYC", "State": "NY"}})
+        _output_entity({"Name": "Acme", "Addr": {"City": "NYC", "State": "NY"}})
         captured = capsys.readouterr().out
         assert "City=NYC" in captured
 
     def test_list_values(self, capsys):
-        _output_kv({"Name": "Acme", "Tags": ["a", "b"]})
+        _output_entity({"Name": "Acme", "Tags": ["a", "b"]})
         captured = capsys.readouterr().out
         assert "Tags" in captured
 

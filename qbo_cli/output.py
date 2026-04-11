@@ -113,11 +113,11 @@ def output_text(data) -> None:
 def _resolve_dict_payload(data: dict):
     """Render or unwrap a dict payload; return None when fully consumed, else a list."""
     if not _has_nested_dict_list(data):
-        _output_kv(data)
+        _output_entity(data)
         return None
     inner = _normalize_output_data(data, extract_list=True)
     if isinstance(inner, dict):
-        _output_kv(inner)
+        _output_entity(inner)
         return None
     return inner
 
@@ -132,7 +132,7 @@ def _render_table(rows: list) -> None:
     print(f"\n({len(rows)} rows)")
 
 
-def _output_kv(data: dict, indent: int = 0) -> None:
+def _output_entity(data: dict, indent: int = 0) -> None:
     """Pretty-print a single entity as key-value pairs."""
     prefix = "  " * indent
     scalar_keys = [k for k, v in data.items() if not isinstance(v, (dict, list))]
@@ -153,7 +153,7 @@ def _output_kv(data: dict, indent: int = 0) -> None:
                 print(f"{prefix}{k:<{max_key}}  {flat}")
             elif simple_vals:
                 print(f"{prefix}{k}:")
-                _output_kv(v, indent + 1)
+                _output_entity(v, indent + 1)
         elif isinstance(v, list) and v:
             if isinstance(v[0], dict):
                 print(f"{prefix}{k}: ({len(v)} items)")
