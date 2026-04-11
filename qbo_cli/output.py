@@ -54,6 +54,10 @@ def output(data, fmt: str = "text") -> None:
         _print_json_fallback(data)
 
 
+def _truncate(s: str, maxlen: int) -> str:
+    return s[: maxlen - 1] + "…" if len(s) > maxlen else s
+
+
 def _select_table_columns(sample_row: dict) -> list:
     """Pick scalar keys from a row; fall back to first six keys if none qualify."""
     all_keys = list(sample_row.keys())
@@ -142,10 +146,6 @@ def _output_kv(data: dict, indent: int = 0) -> None:
                 print(f"{prefix}{k}: ({len(v)} items)")
             else:
                 print(f"{prefix}{k:<{max_key}}  {v}")
-
-
-def _truncate(s: str, maxlen: int) -> str:
-    return s[: maxlen - 1] + "…" if len(s) > maxlen else s
 
 
 def output_tsv(data) -> None:
