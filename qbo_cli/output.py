@@ -51,8 +51,41 @@ def output(data, fmt: str = "text") -> None:
     elif fmt == "text":
         output_text(data)
     else:
-        json.dump(data, sys.stdout, indent=2, default=str)
-        print()
+        _print_json_fallback(data)
+
+
+def _select_table_columns(sample_row: dict) -> list:
+    """Pick scalar keys from a row; fall back to first six keys if none qualify."""
+    all_keys = list(sample_row.keys())
+    scalar_keys = [k for k in all_keys if not isinstance(sample_row.get(k), (dict, list))]
+    return scalar_keys or all_keys[:6]
+
+
+def _compute_column_widths(rows: list, keys: list, max_width: int = 40) -> dict:
+    """Compute per-column display widths capped at ``max_width``."""
+    widths: dict = {}
+    for k in keys:
+        cell_width = max((len(_truncate(str(row.get(k, "")), max_width)) for row in rows), default=0)
+        widths[k] = min(max(len(k), cell_width), max_width)
+    return widths
+
+
+def _render_table_header(keys: list, widths: dict) -> None:
+    """Print column headers with an underline matching the header width."""
+    header = "  ".join(k.ljust(widths[k]) for k in keys)
+    print(header)
+    print("─" * len(header))
+
+
+def _render_table_row(row: dict, keys: list, widths: dict) -> None:
+    """Print one data row with each cell truncated to its column width."""
+    print("  ".join(_truncate(str(row.get(k, "")), widths[k]).ljust(widths[k]) for k in keys))
+
+
+def _print_json_fallback(data) -> None:
+    """Dump arbitrary data as pretty-printed JSON."""
+    json.dump(data, sys.stdout, indent=2, default=str)
+    print()
 
 
 def output_text(data) -> None:
@@ -62,7 +95,6 @@ def output_text(data) -> None:
         if not _has_nested_dict_list(data):
             _output_kv(data)
             return
-
         data = _normalize_output_data(data, extract_list=True)
         if isinstance(data, dict):
             _output_kv(data)
@@ -72,37 +104,14 @@ def output_text(data) -> None:
         print("(no results)")
         return
     if not isinstance(data, list) or not isinstance(data[0], dict):
-        json.dump(data, sys.stdout, indent=2, default=str)
-        print()
+        _print_json_fallback(data)
         return
 
-    # Pick columns: skip deeply nested objects, keep scalars
-    all_keys = list(data[0].keys())
-    keys = []
-    for k in all_keys:
-        sample = data[0].get(k)
-        if isinstance(sample, (dict, list)):
-            continue
-        keys.append(k)
-    if not keys:
-        keys = all_keys[:6]
-
-    # Compute column widths
-    col_widths = {}
-    for k in keys:
-        col_widths[k] = max(len(k), max((len(_truncate(str(row.get(k, "")), 40)) for row in data), default=0))
-        col_widths[k] = min(col_widths[k], 40)
-
-    # Header
-    header = "  ".join(k.ljust(col_widths[k]) for k in keys)
-    print(header)
-    print("─" * len(header))
-
-    # Rows
+    keys = _select_table_columns(data[0])
+    widths = _compute_column_widths(data, keys)
+    _render_table_header(keys, widths)
     for row in data:
-        line = "  ".join(_truncate(str(row.get(k, "")), col_widths[k]).ljust(col_widths[k]) for k in keys)
-        print(line)
-
+        _render_table_row(row, keys, widths)
     print(f"\n({len(data)} rows)")
 
 
@@ -153,8 +162,7 @@ def output_tsv(data) -> None:
         for row in data:
             print("\t".join(str(row.get(k, "")) for k in keys))
     else:
-        json.dump(data, sys.stdout, indent=2, default=str)
-        print()
+        _print_json_fallback(data)
 
 
 def _format_amount(amount: float, currency: str = "") -> str:
