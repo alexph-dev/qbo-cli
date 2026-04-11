@@ -24,108 +24,39 @@ from collections import defaultdict
 from datetime import datetime
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
-from typing import NoReturn
 from urllib.parse import parse_qs, urlencode, urlparse
 
 import requests
 
 from qbo_cli import __version__
-
-# ─── Constants ───────────────────────────────────────────────────────────────
-
-QBO_DIR = Path.home() / ".qbo"
-CONFIG_PATH = QBO_DIR / "config.json"
-AUTH_URL = "https://appcenter.intuit.com/connect/oauth2"
-TOKEN_URL = "https://oauth.platform.intuit.com/oauth2/v1/tokens/bearer"
-PROD_BASE = "https://quickbooks.api.intuit.com/v3/company"
-SANDBOX_BASE = "https://sandbox-quickbooks.api.intuit.com/v3/company"
-SCOPE = "com.intuit.quickbooks.accounting"
-DEFAULT_REDIRECT = "http://localhost:8844/callback"
-REFRESH_MARGIN_SEC = 300  # 5 minutes
-MAX_RESULTS = 1000  # QBO max per page
-DEFAULT_MAX_PAGES = 100  # safety cap
-MINOR_VERSION = 75  # QBO API minor version
-REFRESH_EXPIRY_WARN_DAYS = 14  # warn when refresh token < this many days left
-OUTPUT_FORMATS = ("text", "json", "tsv")
-PROFILE_RE = re.compile(r"^[a-zA-Z0-9_-]+$")
-GL_OUTPUT_FORMATS = ("text", "json", "txns", "expanded")
-FMT_HELP = "Output format: text (default), json, tsv"
-
-# Canonical QBO report types with descriptions and short aliases.
-# Keys are canonical API names; values are (description, [aliases]).
-REPORT_REGISTRY: dict[str, tuple[str, list[str]]] = {
-    "ProfitAndLoss": ("Income and expenses summary", ["PnL", "P&L"]),
-    "ProfitAndLossDetail": ("Detailed income and expenses", ["PnLDetail"]),
-    "BalanceSheet": ("Assets, liabilities, and equity", ["BS"]),
-    "BalanceSheetDetail": ("Detailed balance sheet", ["BSDetail"]),
-    "CashFlow": ("Cash inflows and outflows", ["CF"]),
-    "GeneralLedger": ("All transactions by account", ["GL"]),
-    "TrialBalance": ("Debit and credit totals by account", ["TB"]),
-    "AccountList": ("Chart of accounts listing", ["Accounts", "CoA"]),
-    "TransactionList": ("All transactions flat list", ["TxnList"]),
-    "CustomerIncome": ("Income by customer", []),
-    "CustomerBalance": ("Outstanding balances by customer", []),
-    "CustomerBalanceDetail": ("Detailed customer balances", []),
-    "CustomerSales": ("Sales by customer", []),
-    "AgedReceivables": ("Outstanding receivables by age", ["AR"]),
-    "AgedReceivableDetail": ("Detailed aged receivables", ["ARDetail"]),
-    "AgedPayables": ("Outstanding payables by age", ["AP"]),
-    "AgedPayableDetail": ("Detailed aged payables", ["APDetail"]),
-    "VendorBalance": ("Outstanding balances by vendor", []),
-    "VendorBalanceDetail": ("Detailed vendor balances", []),
-    "VendorExpenses": ("Expenses by vendor", []),
-    "ItemSales": ("Sales by item/product", []),
-    "DepartmentSales": ("Sales by department", []),
-    "ClassSales": ("Sales by class", []),
-}
-
-# Build case-insensitive alias -> canonical name lookup.
-_REPORT_ALIAS_MAP: dict[str, str] = {}
-for _canonical, (_desc, _aliases) in REPORT_REGISTRY.items():
-    _REPORT_ALIAS_MAP[_canonical.lower()] = _canonical
-    for _alias in _aliases:
-        _REPORT_ALIAS_MAP[_alias.lower()] = _canonical
-
-
-# ─── Helpers ─────────────────────────────────────────────────────────────────
-
-
-def _qbo_escape(value: str) -> str:
-    """Escape a value for use in QBO query strings.
-    Doubles single quotes for string literals; strips % to prevent
-    unintended LIKE wildcard expansion."""
-    return value.replace("'", "''").replace("%", "")
-
-
-def die(msg: str, code: int = 1) -> NoReturn:
-    """Print to stderr and exit."""
-    print(f"Error: {msg}", file=sys.stderr)
-    sys.exit(code)
-
-
-def err_print(msg: str) -> None:
-    print(msg, file=sys.stderr)
-
-
-def _resolve_report_name(name: str) -> str:
-    """Resolve a report name or alias to the canonical QBO API report name.
-
-    Args:
-        name: Report name or alias (case-insensitive)
-
-    Returns:
-        Canonical report name for the QBO API
-    """
-    canonical = _REPORT_ALIAS_MAP.get(name.lower())
-    if canonical:
-        return canonical
-    known = ", ".join(sorted(REPORT_REGISTRY))
-    err_print(
-        f"Warning: '{name}' is not a known report type. "
-        f"Passing through to API.\nKnown reports: {known}\n"
-        f"Run 'qbo report --list' to see all reports with aliases."
-    )
-    return name
+from qbo_cli.constants import (
+    AUTH_URL,
+    CONFIG_PATH,
+    DEFAULT_MAX_PAGES,
+    DEFAULT_REDIRECT,
+    FMT_HELP,
+    GL_OUTPUT_FORMATS,
+    MAX_RESULTS,
+    MINOR_VERSION,
+    OUTPUT_FORMATS,
+    PROD_BASE,
+    PROFILE_RE,
+    QBO_DIR,
+    REFRESH_EXPIRY_WARN_DAYS,
+    REFRESH_MARGIN_SEC,
+    REPORT_WIDTH,
+    SANDBOX_BASE,
+    SCOPE,
+    TOKEN_URL,
+)
+from qbo_cli.errors import die, err_print
+from qbo_cli.qbo_query import _qbo_escape
+from qbo_cli.report_registry import (
+    _REPORT_ALIAS_MAP,  # noqa: F401  (re-exported for tests until wave-1 commit 13)
+    REPORT_REGISTRY,  # noqa: F401  (re-exported for tests until wave-1 commit 13)
+    _format_report_list,  # noqa: F401  (re-exported for tests until wave-1 commit 13)
+    _resolve_report_name,
+)
 
 
 def _unwrap_entity_dict(data: dict) -> dict:
@@ -954,9 +885,6 @@ def _resolve_customer(client: "QBOClient", name: str) -> tuple[str, str]:
     return c["Id"], c.get("FullyQualifiedName", c["DisplayName"])
 
 
-REPORT_WIDTH = 72
-
-
 def _format_amount(amount: float, currency: str = "") -> str:
     prefix = currency or ""
     if amount < 0:
@@ -1658,15 +1586,6 @@ def cmd_void(args, config, token_mgr):
     client = _make_client(config, token_mgr)
     result = client.void(args.entity, args.id)
     _emit_result(result, args)
-
-
-def _format_report_list() -> str:
-    """Format the report registry as a readable table for --list output."""
-    lines = []
-    for canonical, (desc, aliases) in REPORT_REGISTRY.items():
-        alias_str = f" ({', '.join(aliases)})" if aliases else ""
-        lines.append(f"  {canonical:<28} {desc}{alias_str}")
-    return "Available reports:\n" + "\n".join(lines)
 
 
 def cmd_report(args, config, token_mgr):
