@@ -69,8 +69,6 @@ def _read_optional_stdin_json() -> dict | None:
 
 def _read_stdin_json() -> dict:
     """Read and parse JSON from stdin, or die with helpful error."""
-    if sys.stdin.isatty():
-        die("Pipe JSON body via stdin. Example: echo '{...}' | qbo <command> <entity>")
     body = _read_optional_stdin_json()
     if body is None:
         die("Pipe JSON body via stdin. Example: echo '{...}' | qbo <command> <entity>")
