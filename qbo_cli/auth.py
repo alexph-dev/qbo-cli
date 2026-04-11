@@ -72,6 +72,14 @@ class TokenManager:
             return tokens["access_token"]
         return self._locked_refresh(tokens)
 
+    def refresh_if_needed(self) -> str:
+        """Run a locked refresh against the currently loaded tokens.
+
+        Mirrors the historical CLI ``auth refresh`` behavior: skips the
+        network call when the token is still inside the refresh margin.
+        """
+        return self._locked_refresh(self.load())
+
     def _warn_refresh_expiry(self, tokens: dict):
         """Warn to stderr if refresh token is nearing expiry."""
         refresh_exp = tokens.get("refresh_expires_at", 0)
@@ -303,8 +311,7 @@ def _build_token_status(config: Config, tokens: dict) -> dict:
 
 def cmd_auth_refresh(args, config, token_mgr):
     config.validate()
-    token_mgr.load()
-    token_mgr._locked_refresh(token_mgr._tokens)
+    token_mgr.refresh_if_needed()
     err_print("✓ Token refreshed successfully")
 
 
