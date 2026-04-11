@@ -321,8 +321,8 @@ def _resolve_customer(client: "QBOClient", name: str) -> tuple[str, str]:
     """Resolve customer display name to (id, full_name)."""
     if name.isdigit():
         data = client.get("Customer", name)
-        cust = data.get("Customer", data)
-        return name, cust.get("FullyQualifiedName", cust.get("DisplayName", name))
+        customer = data.get("Customer", data)
+        return name, customer.get("FullyQualifiedName", customer.get("DisplayName", name))
 
     # Exact then fuzzy
     safe_name = _qbo_escape(name)
@@ -337,14 +337,14 @@ def _resolve_customer(client: "QBOClient", name: str) -> tuple[str, str]:
         die(f"No customer found matching '{name}'")
     if len(customers) > 1:
         err_print(f"Multiple customers found for '{name}':")
-        for c in customers:
-            err_print(f"  ID={c['Id']}  Name={c.get('FullyQualifiedName', c['DisplayName'])}")
+        for customer in customers:
+            err_print(f"  ID={customer['Id']}  Name={customer.get('FullyQualifiedName', customer['DisplayName'])}")
         err_print("Using first match.")
-    for c in customers:
-        if c.get("DisplayName", "").lower() == name.lower():
-            return c["Id"], c.get("FullyQualifiedName", c["DisplayName"])
-    c = customers[0]
-    return c["Id"], c.get("FullyQualifiedName", c["DisplayName"])
+    for customer in customers:
+        if customer.get("DisplayName", "").lower() == name.lower():
+            return customer["Id"], customer.get("FullyQualifiedName", customer["DisplayName"])
+    first_match = customers[0]
+    return first_match["Id"], first_match.get("FullyQualifiedName", first_match["DisplayName"])
 
 
 def _compute_subtotal(section_idx: dict[str, GLSection], node: dict) -> tuple[float, int]:
@@ -467,16 +467,16 @@ def _collapse_tree(node: dict) -> dict:
     return {"name": node["name"], "id": node["id"], "children": []}
 
 
-def _customer_group_key(cust: str, prefix: str) -> str:
-    """Resolve the bucket key for ``cust`` under an optional ``prefix``.
+def _customer_group_key(customer: str, prefix: str) -> str:
+    """Resolve the bucket key for ``customer`` under an optional ``prefix``.
 
     With no prefix, customers group by their full name. With a prefix, names
     that descend from it collapse to ``prefix + first_child`` (one level
     below); names that do not descend from it group as-is.
     """
-    if not prefix or not cust.startswith(prefix):
-        return cust
-    first_child = cust[len(prefix) :].split(":", 1)[0]
+    if not prefix or not customer.startswith(prefix):
+        return customer
+    first_child = customer[len(prefix) :].split(":", 1)[0]
     return prefix + first_child
 
 
@@ -496,12 +496,12 @@ def _group_txns_by_customer(
     groups: dict[str, list[GLTransaction]] = defaultdict(list)
     skipped_parent_txns: list[GLTransaction] = []
 
-    for t in txns:
-        cust = t.customer or "(no customer)"
-        if prefix and cust == parent:
-            skipped_parent_txns.append(t)
+    for txn in txns:
+        customer = txn.customer or "(no customer)"
+        if prefix and customer == parent:
+            skipped_parent_txns.append(txn)
             continue
-        groups[_customer_group_key(cust, prefix)].append(t)
+        groups[_customer_group_key(customer, prefix)].append(txn)
 
     return groups, skipped_parent_txns
 
@@ -509,7 +509,11 @@ def _group_txns_by_customer(
 def _sort_customer_groups(groups: dict[str, list[GLTransaction]], sort_by: str) -> list[str]:
     """Order customer keys alphabetically or by absolute group total."""
     if sort_by == "amount":
-        return sorted(groups, key=lambda c: abs(sum(t.amount for t in groups[c])), reverse=True)
+        return sorted(
+            groups,
+            key=lambda customer: abs(sum(txn.amount for txn in groups[customer])),
+            reverse=True,
+        )
     return sorted(groups)
 
 
@@ -532,23 +536,26 @@ def _build_by_customer_report(
         return ["(no transactions)"]
 
     groups, skipped_parent_txns = _group_txns_by_customer(txns, customer_filter)
-    sorted_custs = _sort_customer_groups(groups, sort_by)
+    sorted_customers = _sort_customer_groups(groups, sort_by)
 
     lines = [node["name"], ""]
-    for cust in sorted_custs:
-        ctxns = groups[cust]
-        total = sum(t.amount for t in ctxns)
-        lines.append(_pad_line(f"{cust} ({len(ctxns)})", _format_amount(total, currency)))
+    for customer in sorted_customers:
+        customer_txns = groups[customer]
+        customer_total = sum(txn.amount for txn in customer_txns)
+        lines.append(_pad_line(f"{customer} ({len(customer_txns)})", _format_amount(customer_total, currency)))
 
     if skipped_parent_txns:
-        total = sum(t.amount for t in skipped_parent_txns)
+        parent_total = sum(txn.amount for txn in skipped_parent_txns)
         lines.append("")
         lines.append(
-            _pad_line(f"({customer_filter} direct) ({len(skipped_parent_txns)})", _format_amount(total, currency))
+            _pad_line(
+                f"({customer_filter} direct) ({len(skipped_parent_txns)})",
+                _format_amount(parent_total, currency),
+            )
         )
 
     lines.append("")
-    grand_total = sum(t.amount for t in txns)
+    grand_total = sum(txn.amount for txn in txns)
     lines.append(_pad_line(f"TOTAL ({len(txns)})", _format_amount(grand_total, currency)))
 
     return lines
