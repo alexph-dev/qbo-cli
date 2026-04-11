@@ -12,7 +12,6 @@ License: MIT
 from __future__ import annotations
 
 import argparse
-import calendar
 import fcntl
 import functools
 import json
@@ -50,6 +49,22 @@ from qbo_cli.constants import (
     TOKEN_URL,
 )
 from qbo_cli.errors import die, err_print
+from qbo_cli.output import (
+    _first_list_value,  # noqa: F401  (re-exported for tests until wave-1 commit 13)
+    _format_amount,
+    _format_date_range,
+    _has_nested_dict_list,  # noqa: F401  (re-exported for tests until wave-1 commit 13)
+    _is_month_end,  # noqa: F401  (re-exported for tests until wave-1 commit 13)
+    _is_month_start,  # noqa: F401  (re-exported for tests until wave-1 commit 13)
+    _normalize_output_data,  # noqa: F401  (re-exported for tests until wave-1 commit 13)
+    _output_kv,  # noqa: F401  (re-exported for tests until wave-1 commit 13)
+    _pad_line,
+    _truncate,  # noqa: F401  (re-exported for tests until wave-1 commit 13)
+    _unwrap_entity_dict,  # noqa: F401  (re-exported for tests until wave-1 commit 13)
+    output,
+    output_text,  # noqa: F401  (re-exported for tests until wave-1 commit 13)
+    output_tsv,  # noqa: F401  (re-exported for tests until wave-1 commit 13)
+)
 from qbo_cli.qbo_query import _qbo_escape
 from qbo_cli.report_registry import (
     _REPORT_ALIAS_MAP,  # noqa: F401  (re-exported for tests until wave-1 commit 13)
@@ -57,154 +72,6 @@ from qbo_cli.report_registry import (
     _format_report_list,  # noqa: F401  (re-exported for tests until wave-1 commit 13)
     _resolve_report_name,
 )
-
-
-def _unwrap_entity_dict(data: dict) -> dict:
-    """Unwrap entity payloads like {'Customer': {...}} to the inner object."""
-    keys = list(data.keys())
-    if len(keys) == 1 and isinstance(data[keys[0]], dict):
-        return data[keys[0]]
-    return data
-
-
-def _first_list_value(data: dict) -> list | None:
-    """Return the first list value in a dict, if present."""
-    for value in data.values():
-        if isinstance(value, list):
-            return value
-    return None
-
-
-def _normalize_output_data(data, *, unwrap_entity: bool = False, extract_list: bool = False):
-    """Apply shared output normalization for dict-based QBO responses."""
-    if not isinstance(data, dict):
-        return data
-
-    normalized = _unwrap_entity_dict(data) if unwrap_entity else data
-    if extract_list:
-        list_value = _first_list_value(normalized)
-        if list_value is not None:
-            return list_value
-    return normalized
-
-
-def _has_nested_dict_list(data: dict) -> bool:
-    """Return True when a dict contains at least one list of dicts."""
-    return any(isinstance(v, list) and v and isinstance(v[0], dict) for v in data.values())
-
-
-def output(data, fmt: str = "text") -> None:
-    """Write result to stdout."""
-    if fmt == "tsv":
-        output_tsv(data)
-    elif fmt == "text":
-        output_text(data)
-    else:
-        json.dump(data, sys.stdout, indent=2, default=str)
-        print()
-
-
-def output_text(data) -> None:
-    """Human-readable table output."""
-    data = _normalize_output_data(data, unwrap_entity=True)
-    if isinstance(data, dict):
-        if not _has_nested_dict_list(data):
-            _output_kv(data)
-            return
-
-        data = _normalize_output_data(data, extract_list=True)
-        if isinstance(data, dict):
-            _output_kv(data)
-            return
-
-    if not data:
-        print("(no results)")
-        return
-    if not isinstance(data, list) or not isinstance(data[0], dict):
-        json.dump(data, sys.stdout, indent=2, default=str)
-        print()
-        return
-
-    # Pick columns: skip deeply nested objects, keep scalars
-    all_keys = list(data[0].keys())
-    keys = []
-    for k in all_keys:
-        sample = data[0].get(k)
-        if isinstance(sample, (dict, list)):
-            continue
-        keys.append(k)
-    if not keys:
-        keys = all_keys[:6]
-
-    # Compute column widths
-    col_widths = {}
-    for k in keys:
-        col_widths[k] = max(len(k), max((len(_truncate(str(row.get(k, "")), 40)) for row in data), default=0))
-        col_widths[k] = min(col_widths[k], 40)
-
-    # Header
-    header = "  ".join(k.ljust(col_widths[k]) for k in keys)
-    print(header)
-    print("─" * len(header))
-
-    # Rows
-    for row in data:
-        line = "  ".join(_truncate(str(row.get(k, "")), col_widths[k]).ljust(col_widths[k]) for k in keys)
-        print(line)
-
-    print(f"\n({len(data)} rows)")
-
-
-def _output_kv(data: dict, indent: int = 0) -> None:
-    """Pretty-print a single entity as key-value pairs."""
-    prefix = "  " * indent
-    # Find max key length for alignment
-    scalar_keys = [k for k, v in data.items() if not isinstance(v, (dict, list))]
-    nested_keys = [k for k, v in data.items() if isinstance(v, (dict, list))]
-    max_key = max((len(k) for k in scalar_keys), default=10)
-
-    for k in scalar_keys:
-        v = data[k]
-        print(f"{prefix}{k:<{max_key}}  {v}")
-
-    for k in nested_keys:
-        v = data[k]
-        if isinstance(v, dict):
-            # Flatten simple nested dicts inline
-            simple_vals = {sk: sv for sk, sv in v.items() if not isinstance(sv, (dict, list))}
-            if simple_vals and len(simple_vals) <= 3:
-                flat = ", ".join(f"{sk}={sv}" for sk, sv in simple_vals.items())
-                print(f"{prefix}{k:<{max_key}}  {flat}")
-            elif simple_vals:
-                print(f"{prefix}{k}:")
-                _output_kv(v, indent + 1)
-        elif isinstance(v, list) and v:
-            if isinstance(v[0], dict):
-                print(f"{prefix}{k}: ({len(v)} items)")
-            else:
-                print(f"{prefix}{k:<{max_key}}  {v}")
-
-
-def _truncate(s: str, maxlen: int) -> str:
-    return s[: maxlen - 1] + "…" if len(s) > maxlen else s
-
-
-def output_tsv(data) -> None:
-    """Flatten list-of-dicts to TSV."""
-    data = _normalize_output_data(data, extract_list=True)
-    if isinstance(data, dict):
-        data = [data]
-    if not data:
-        return
-    if isinstance(data, list) and data and isinstance(data[0], dict):
-        keys = list(data[0].keys())
-        print("\t".join(keys))
-        for row in data:
-            print("\t".join(str(row.get(k, "")) for k in keys))
-    else:
-        json.dump(data, sys.stdout, indent=2, default=str)
-        print()
-
 
 # ─── Config ──────────────────────────────────────────────────────────────────
 
@@ -885,13 +752,6 @@ def _resolve_customer(client: "QBOClient", name: str) -> tuple[str, str]:
     return c["Id"], c.get("FullyQualifiedName", c["DisplayName"])
 
 
-def _format_amount(amount: float, currency: str = "") -> str:
-    prefix = currency or ""
-    if amount < 0:
-        return f"-{prefix}{abs(amount):,.2f}"
-    return f"{prefix}{amount:,.2f}"
-
-
 def _parse_date(value: str) -> str:
     """Parse flexible date input → YYYY-MM-DD string.
 
@@ -912,43 +772,6 @@ def _parse_date(value: str) -> str:
                 pass
     die(f"Cannot parse date '{value}'. Use YYYY-MM-DD or DD.MM.YYYY.")
     return ""  # unreachable
-
-
-def _is_month_start(d: datetime) -> bool:
-    return d.day == 1
-
-
-def _is_month_end(d: datetime) -> bool:
-    return d.day == calendar.monthrange(d.year, d.month)[1]
-
-
-def _format_date_range(start: str, end: str) -> str:
-    s = datetime.strptime(start, "%Y-%m-%d")
-    e = datetime.strptime(end, "%Y-%m-%d")
-    s_clean = _is_month_start(s)
-    e_clean = _is_month_end(e)
-
-    if s.month == e.month and s.year == e.year:
-        if s_clean and e_clean:
-            return f"{s.strftime('%B')}, {s.year}"
-        elif s_clean:
-            return f"{s.strftime('%B')} 1-{e.day}, {s.year}"
-        else:
-            return f"{s.strftime('%B')} {s.day}-{e.day}, {s.year}"
-    elif s.year == e.year:
-        s_fmt = s.strftime("%B") if s_clean else f"{s.strftime('%B')} {s.day}"
-        e_fmt = e.strftime("%B") if e_clean else f"{e.strftime('%B')} {e.day}"
-        return f"{s_fmt}-{e_fmt}, {s.year}"
-    else:
-        s_fmt = s.strftime("%B %Y") if s_clean else f"{s.day} {s.strftime('%B %Y')}"
-        e_fmt = e.strftime("%B %Y") if e_clean else f"{e.day} {e.strftime('%B %Y')}"
-        return f"{s_fmt}-{e_fmt}"
-
-
-def _pad_line(label: str, amt_str: str, prefix: str = "") -> str:
-    total_len = len(prefix) + len(label) + len(amt_str)
-    pad = max(1, REPORT_WIDTH - total_len)
-    return f"{prefix}{label}{' ' * pad}{amt_str}"
 
 
 def _compute_subtotal(section_idx: dict[str, GLSection], node: dict) -> tuple[float, int]:
