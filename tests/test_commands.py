@@ -745,8 +745,8 @@ class TestCmdAuthSetup:
         fake_config.profile = "prod"
         args = make_args(command="auth", auth_command="setup")
         with (
-            patch("qbo_cli.cli.CONFIG_PATH", config_file),
-            patch("qbo_cli.cli.QBO_DIR", tmp_path),
+            patch("qbo_cli.auth.CONFIG_PATH", config_file),
+            patch("qbo_cli.auth.QBO_DIR", tmp_path),
             patch("builtins.input", side_effect=["new-id", "new-secret", ""]),
         ):
             cmd_auth_setup(args, fake_config, fake_token_mgr)
@@ -763,8 +763,8 @@ class TestCmdAuthSetup:
         fake_config.profile = "dev"
         args = make_args(command="auth", auth_command="setup")
         with (
-            patch("qbo_cli.cli.CONFIG_PATH", config_file),
-            patch("qbo_cli.cli.QBO_DIR", tmp_path),
+            patch("qbo_cli.auth.CONFIG_PATH", config_file),
+            patch("qbo_cli.auth.QBO_DIR", tmp_path),
             patch("builtins.input", side_effect=["dev-id", "dev-secret", ""]),
         ):
             cmd_auth_setup(args, fake_config, fake_token_mgr)
@@ -779,8 +779,8 @@ class TestCmdAuthSetup:
         fake_config.profile = "prod"
         args = make_args(command="auth", auth_command="setup")
         with (
-            patch("qbo_cli.cli.CONFIG_PATH", config_file),
-            patch("qbo_cli.cli.QBO_DIR", tmp_path),
+            patch("qbo_cli.auth.CONFIG_PATH", config_file),
+            patch("qbo_cli.auth.QBO_DIR", tmp_path),
             patch("builtins.input", side_effect=["x", "y", ""]),
         ):
             cmd_auth_setup(args, fake_config, fake_token_mgr)
@@ -796,8 +796,8 @@ class TestCmdAuthSetup:
         fake_config.profile = "prod"
         args = make_args(command="auth", auth_command="setup")
         with (
-            patch("qbo_cli.cli.CONFIG_PATH", config_file),
-            patch("qbo_cli.cli.QBO_DIR", tmp_path),
+            patch("qbo_cli.auth.CONFIG_PATH", config_file),
+            patch("qbo_cli.auth.QBO_DIR", tmp_path),
             patch("builtins.input", side_effect=["", "", ""]),
         ):
             with pytest.raises(SystemExit):
@@ -819,8 +819,8 @@ class TestCmdAuthSetup:
         fake_config.profile = "prod"
         args = make_args(command="auth", auth_command="setup")
         with (
-            patch("qbo_cli.cli.CONFIG_PATH", config_file),
-            patch("qbo_cli.cli.QBO_DIR", tmp_path),
+            patch("qbo_cli.auth.CONFIG_PATH", config_file),
+            patch("qbo_cli.auth.QBO_DIR", tmp_path),
             patch("builtins.input", side_effect=["", "", ""]),  # accept old defaults
         ):
             cmd_auth_setup(args, fake_config, fake_token_mgr)
