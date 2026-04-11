@@ -351,50 +351,103 @@ def _build_report_lines(
     lines: list | None = None,
     expanded: bool = False,
 ) -> list[str]:
+    """Render a hierarchical GL report rooted at ``node`` into text lines.
+
+    Accepts an optional ``lines`` accumulator for backward compatibility:
+    callers may pre-seed a header and pass it in to be appended in place. The
+    return value is the same list (or a fresh one when ``lines is None``).
+    """
     if lines is None:
         lines = []
-
-    prefix = "  " * indent
-    subtotal_amt, subtotal_cnt = _compute_subtotal(section_idx, node)
-
-    if not node["children"]:
-        section = _find_gl_section(section_idx, node["name"], node.get("id", ""))
-        amt = section.total_amount if section else 0.0
-        cnt = section.total_count if section else 0
-        if cnt == 0 and not amt:
-            return lines
-        lines.append(_pad_line(f"{node['name']} ({cnt})", _format_amount(amt, currency), prefix))
-        if expanded and section:
-            _append_txn_lines(section.all_transactions, currency, indent + 1, lines)
-    else:
-        if subtotal_cnt == 0 and not subtotal_amt:
-            return lines
-
-        section = _find_gl_section(section_idx, node["name"], node.get("id", ""))
-        own_cnt = section.direct_count if section else 0
-        own_amt = section.direct_amount if section else 0.0
-        if own_cnt > 0:
-            lines.append(_pad_line(f"{node['name']} ({own_cnt})", _format_amount(own_amt, currency), prefix))
-            if expanded and section:
-                _append_txn_lines(section.transactions, currency, indent + 1, lines)
-        else:
-            lines.append(f"{prefix}{node['name']}")
-
-        for child in node["children"]:
-            _build_report_lines(section_idx, child, currency, indent + 1, lines, expanded=expanded)
-
-        lines.append(_pad_line(f"Total for {node['name']}", _format_amount(subtotal_amt, currency), prefix))
-
+    lines.extend(_render_node_lines(section_idx, node, currency, indent, expanded))
     return lines
 
 
-def _append_txn_lines(txns: list[GLTransaction], currency: str, indent: int, lines: list[str]):
-    """Append formatted transaction lines."""
-    for t in sorted(txns, key=lambda x: x.date):
-        prefix = "  " * indent
-        memo = t.memo[:40] + "…" if len(t.memo) > 40 else t.memo
-        label = f"{t.date}  {t.txn_type:<12s} {memo}"
-        lines.append(_pad_line(label, _format_amount(t.amount, currency), prefix))
+def _render_node_lines(
+    section_idx: dict[str, GLSection],
+    node: dict,
+    currency: str,
+    indent: int,
+    expanded: bool,
+) -> list[str]:
+    """Pure renderer: return the lines for ``node`` and its descendants."""
+    section = _find_gl_section(section_idx, node["name"], node.get("id", ""))
+    prefix = "  " * indent
+
+    if not node["children"]:
+        return _render_leaf_node(section, node, currency, prefix, indent, expanded)
+
+    subtotal_amt, subtotal_cnt = _compute_subtotal(section_idx, node)
+    if subtotal_cnt == 0 and not subtotal_amt:
+        return []
+
+    return _render_branch_node(section_idx, section, node, currency, prefix, indent, expanded, subtotal_amt)
+
+
+def _render_leaf_node(
+    section: GLSection | None,
+    node: dict,
+    currency: str,
+    prefix: str,
+    indent: int,
+    expanded: bool,
+) -> list[str]:
+    """Render a leaf account node (no children)."""
+    amt = section.total_amount if section else 0.0
+    cnt = section.total_count if section else 0
+    if cnt == 0 and not amt:
+        return []
+    out = [_pad_line(f"{node['name']} ({cnt})", _format_amount(amt, currency), prefix)]
+    if expanded and section:
+        out.extend(_format_txn_lines(section.all_transactions, currency, indent + 1))
+    return out
+
+
+def _render_branch_node(
+    section_idx: dict[str, GLSection],
+    section: GLSection | None,
+    node: dict,
+    currency: str,
+    prefix: str,
+    indent: int,
+    expanded: bool,
+    subtotal_amt: float,
+) -> list[str]:
+    """Render an account node that has children."""
+    own_cnt = section.direct_count if section else 0
+    own_amt = section.direct_amount if section else 0.0
+
+    out: list[str] = []
+    if own_cnt > 0:
+        out.append(_pad_line(f"{node['name']} ({own_cnt})", _format_amount(own_amt, currency), prefix))
+        if expanded and section:
+            out.extend(_format_txn_lines(section.transactions, currency, indent + 1))
+    else:
+        out.append(f"{prefix}{node['name']}")
+
+    for child in node["children"]:
+        out.extend(_render_node_lines(section_idx, child, currency, indent + 1, expanded))
+
+    out.append(_pad_line(f"Total for {node['name']}", _format_amount(subtotal_amt, currency), prefix))
+    return out
+
+
+def _format_txn_lines(txns: list[GLTransaction], currency: str, indent: int) -> list[str]:
+    """Return formatted transaction lines (sorted by date) for ``txns``."""
+    prefix = "  " * indent
+    return [
+        _pad_line(
+            f"{t.date}  {t.txn_type:<12s} {(t.memo[:40] + '…') if len(t.memo) > 40 else t.memo}",
+            _format_amount(t.amount, currency),
+            prefix,
+        )
+        for t in sorted(txns, key=lambda x: x.date)
+    ]
+
+
+def _append_txn_lines(txns: list[GLTransaction], currency: str, indent: int, lines: list[str]) -> None:
+    """Append formatted transaction lines (kept for backward compat in case any caller uses it)."""
+    lines.extend(_format_txn_lines(txns, currency, indent))
 
 
 def _build_txns_report(section_idx: dict[str, GLSection], node: dict, currency: str) -> list[str]:
