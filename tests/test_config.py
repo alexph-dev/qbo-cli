@@ -40,7 +40,7 @@ class TestConfigProfileLoading:
         )
         old = _clear_qbo_env()
         try:
-            with patch("qbo_cli.cli.CONFIG_PATH", config_file):
+            with patch("qbo_cli.config.CONFIG_PATH", config_file):
                 cfg = Config(profile="prod")
         finally:
             _restore_env(old)
@@ -59,7 +59,7 @@ class TestConfigProfileLoading:
         )
         old = _clear_qbo_env()
         try:
-            with patch("qbo_cli.cli.CONFIG_PATH", config_file):
+            with patch("qbo_cli.config.CONFIG_PATH", config_file):
                 cfg = Config(profile="dev")
         finally:
             _restore_env(old)
@@ -77,7 +77,7 @@ class TestConfigProfileLoading:
         )
         old = _clear_qbo_env()
         try:
-            with patch("qbo_cli.cli.CONFIG_PATH", config_file):
+            with patch("qbo_cli.config.CONFIG_PATH", config_file):
                 cfg = Config(profile="dev")
         finally:
             _restore_env(old)
@@ -94,7 +94,7 @@ class TestConfigProfileLoading:
         )
         old = _clear_qbo_env()
         try:
-            with patch("qbo_cli.cli.CONFIG_PATH", config_file):
+            with patch("qbo_cli.config.CONFIG_PATH", config_file):
                 cfg = Config(profile="prod")
         finally:
             _restore_env(old)
@@ -111,7 +111,7 @@ class TestConfigProfileLoading:
         )
         old = _clear_qbo_env()
         try:
-            with patch("qbo_cli.cli.CONFIG_PATH", config_file):
+            with patch("qbo_cli.config.CONFIG_PATH", config_file):
                 cfg = Config(profile="dev")
         finally:
             _restore_env(old)
@@ -138,7 +138,7 @@ class TestConfigEnvOverride:
         }
         old = _clear_qbo_env()
         try:
-            with patch("qbo_cli.cli.CONFIG_PATH", config_file), patch.dict("os.environ", env, clear=False):
+            with patch("qbo_cli.config.CONFIG_PATH", config_file), patch.dict("os.environ", env, clear=False):
                 cfg = Config(profile="prod")
         finally:
             _restore_env(old)
@@ -161,7 +161,7 @@ class TestConfigEnvOverride:
         )
         old = _clear_qbo_env()
         try:
-            with patch("qbo_cli.cli.CONFIG_PATH", config_file):
+            with patch("qbo_cli.config.CONFIG_PATH", config_file):
                 cfg = Config(profile="prod")
         finally:
             _restore_env(old)
@@ -178,7 +178,7 @@ class TestConfigMissingFile:
         config_file = tmp_path / "nonexistent.json"
         old = _clear_qbo_env()
         try:
-            with patch("qbo_cli.cli.CONFIG_PATH", config_file):
+            with patch("qbo_cli.config.CONFIG_PATH", config_file):
                 cfg = Config(profile="prod")
         finally:
             _restore_env(old)
@@ -191,7 +191,7 @@ class TestConfigMissingFile:
         config_file.write_text("not json {{{")
         old = _clear_qbo_env()
         try:
-            with patch("qbo_cli.cli.CONFIG_PATH", config_file):
+            with patch("qbo_cli.config.CONFIG_PATH", config_file):
                 cfg = Config(profile="prod")
         finally:
             _restore_env(old)
@@ -214,7 +214,7 @@ class TestConfigLegacyFlat:
         )
         old = _clear_qbo_env()
         try:
-            with patch("qbo_cli.cli.CONFIG_PATH", config_file):
+            with patch("qbo_cli.config.CONFIG_PATH", config_file):
                 cfg = Config(profile="prod")
         finally:
             _restore_env(old)
@@ -241,7 +241,7 @@ class TestConfigMissingProfile:
         )
         old = _clear_qbo_env()
         try:
-            with patch("qbo_cli.cli.CONFIG_PATH", config_file):
+            with patch("qbo_cli.config.CONFIG_PATH", config_file):
                 cfg = Config(profile="staging")
         finally:
             _restore_env(old)
@@ -255,7 +255,7 @@ class TestConfigMissingProfile:
         old = _clear_qbo_env()
         try:
             with (
-                patch("qbo_cli.cli.CONFIG_PATH", config_file),
+                patch("qbo_cli.config.CONFIG_PATH", config_file),
                 patch.dict("os.environ", {"QBO_CLIENT_ID": "env-id", "QBO_CLIENT_SECRET": "env-secret"}),
             ):
                 cfg = Config(profile="staging")
@@ -322,7 +322,7 @@ class TestProfileValidation:
         config_file.write_text(json.dumps({"my-profile_1": {"client_id": "x"}}))
         old = _clear_qbo_env()
         try:
-            with patch("qbo_cli.cli.CONFIG_PATH", config_file):
+            with patch("qbo_cli.config.CONFIG_PATH", config_file):
                 cfg = Config(profile="my-profile_1")
         finally:
             _restore_env(old)
@@ -337,7 +337,7 @@ class TestQboSandboxEnvRejected:
         config_file = tmp_path / "config.json"
         config_file.write_text(json.dumps({"prod": {}}))
         with (
-            patch("qbo_cli.cli.CONFIG_PATH", config_file),
+            patch("qbo_cli.config.CONFIG_PATH", config_file),
             patch.dict("os.environ", {"QBO_SANDBOX": "true"}, clear=False),
         ):
             with pytest.raises(SystemExit):
@@ -349,7 +349,7 @@ class TestQboSandboxEnvRejected:
         old = _clear_qbo_env()
         try:
             with (
-                patch("qbo_cli.cli.CONFIG_PATH", config_file),
+                patch("qbo_cli.config.CONFIG_PATH", config_file),
                 patch.dict("os.environ", {"QBO_SANDBOX": "false"}, clear=False),
             ):
                 cfg = Config(profile="prod")
