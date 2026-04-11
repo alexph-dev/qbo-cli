@@ -367,18 +367,18 @@ class TestCmdGlReport:
         with ExitStack() as stack:
             stack.enter_context(patch("qbo_cli.cli_options.QBOClient", return_value=client))
             if customer is not None:
-                stack.enter_context(patch("qbo_cli.cli._resolve_customer", return_value=("104", "PM:R-CB1")))
+                stack.enter_context(patch("qbo_cli.gl_report._resolve_customer", return_value=("104", "PM:R-CB1")))
             stack.enter_context(
                 patch(
-                    "qbo_cli.cli._discover_account_tree",
+                    "qbo_cli.gl_report._discover_account_tree",
                     return_value={"name": "PM Owner Funds", "id": "125", "children": []},
                 )
             )
-            stack.enter_context(patch("qbo_cli.cli._parse_gl_rows", return_value=[]))
-            stack.enter_context(patch("qbo_cli.cli._build_section_index", return_value={}))
-            stack.enter_context(patch("qbo_cli.cli._extract_dates_from_gl", return_value=(None, None)))
-            stack.enter_context(patch("qbo_cli.cli._compute_subtotal", return_value=(123.45, 0)))
-            stack.enter_context(patch("qbo_cli.cli._find_gl_section", return_value=None))
+            stack.enter_context(patch("qbo_cli.gl_report._parse_gl_rows", return_value=[]))
+            stack.enter_context(patch("qbo_cli.gl_report._build_section_index", return_value={}))
+            stack.enter_context(patch("qbo_cli.gl_report._extract_dates_from_gl", return_value=(None, None)))
+            stack.enter_context(patch("qbo_cli.gl_report._compute_subtotal", return_value=(123.45, 0)))
+            stack.enter_context(patch("qbo_cli.gl_report._find_gl_section", return_value=None))
             cmd_gl_report(args, fake_config, fake_token_mgr)
 
         return json.loads(capsys.readouterr().out)
@@ -403,7 +403,7 @@ class TestCmdGlReport:
         with (
             patch("qbo_cli.cli_options.QBOClient", return_value=client),
             patch(
-                "qbo_cli.cli._discover_account_tree",
+                "qbo_cli.gl_report._discover_account_tree",
                 return_value={"name": "PM Owner Funds", "id": "125", "children": []},
             ),
         ):
@@ -431,7 +431,7 @@ class TestCmdGlReport:
         with (
             patch("qbo_cli.cli_options.QBOClient", return_value=client),
             patch(
-                "qbo_cli.cli._list_all_accounts_data",
+                "qbo_cli.gl_report._list_all_accounts_data",
                 return_value={
                     "groups": [
                         {"type": "Income", "accounts": [{"id": "125", "name": "Revenue", "sub_account_count": 2}]}
@@ -504,12 +504,12 @@ class TestCmdGlReport:
         with (
             patch("qbo_cli.cli_options.QBOClient", return_value=MagicMock()),
             patch(
-                "qbo_cli.cli._discover_account_tree",
+                "qbo_cli.gl_report._discover_account_tree",
                 return_value={"name": "PM Owner Funds", "id": "125", "children": []},
             ),
-            patch("qbo_cli.cli._parse_gl_rows", return_value=[]),
-            patch("qbo_cli.cli._build_section_index", return_value={}),
-            patch("qbo_cli.cli._extract_dates_from_gl", return_value=(None, None)),
+            patch("qbo_cli.gl_report._parse_gl_rows", return_value=[]),
+            patch("qbo_cli.gl_report._build_section_index", return_value={}),
+            patch("qbo_cli.gl_report._extract_dates_from_gl", return_value=(None, None)),
             pytest.raises(SystemExit),
         ):
             cmd_gl_report(args, fake_config, fake_token_mgr)
