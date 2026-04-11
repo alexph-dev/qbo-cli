@@ -129,6 +129,8 @@ From `rg 'from qbo_cli\.cli import'`:
 
 All patch targets must be updated to point at the new module path where the function resolves its dependencies.
 
+**Exception** (clarified after wave 1): `cli.py` dispatch tests legitimately patch `qbo_cli.cli.cmd_*` — that's where `_dispatch_command` resolves the handler via module globals. So `tests/test_commands.py` dispatch-table tests keep `@patch('qbo_cli.cli.cmd_query')` etc. The "zero qbo_cli.cli hits in tests" goal applies only to symbols that were extracted — not to dispatch glue that legitimately lives in cli.py.
+
 ### Risks (revised)
 
 - Patch-target drift: any missed `@patch('qbo_cli.cli.X')` becomes a silent test gap. Mitigation: grep for `qbo_cli.cli` in tests after migration; must be zero hits.
