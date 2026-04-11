@@ -65,7 +65,7 @@ qbo_cli/
                       # _parse_gl_rows, _build_section_index, _find_gl_section,
                       # _extract_dates_from_gl, _discover_account_tree,
                       # _list_all_accounts*, _resolve_customer, _compute_subtotal,
-                      # _build_report_lines, _append_txn_lines,
+                      # _build_report_lines,
                       # _build_txns_report, _collapse_tree,
                       # _build_by_customer_report, _txn_to_dict, cmd_gl_report
                       # (depends: client, output, cli_options, qbo_query, errors)

@@ -421,11 +421,6 @@ def _format_txn_lines(txns: list[GLTransaction], currency: str, indent: int) -> 
     ]
 
 
-def _append_txn_lines(txns: list[GLTransaction], currency: str, indent: int, lines: list[str]) -> None:
-    """Append formatted transaction lines (kept for backward compat in case any caller uses it)."""
-    lines.extend(_format_txn_lines(txns, currency, indent))
-
-
 def _build_txns_report(section_idx: dict[str, GLSection], node: dict, currency: str) -> list[str]:
     """Flat list of all transactions sorted by date."""
     section = _find_gl_section(section_idx, node["name"], node.get("id", ""))
