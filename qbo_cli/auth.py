@@ -116,7 +116,7 @@ class TokenManager:
             {"grant_type": "refresh_token", "refresh_token": tokens["refresh_token"]},
             failure_label="Token refresh",
         )
-        self._raise_on_refresh_error(resp)
+        self._die_on_refresh_error(resp)
         return _build_token_envelope(
             resp.json(),
             realm_id=tokens.get("realm_id", self.config.realm_id),
@@ -156,7 +156,7 @@ class TokenManager:
         return None  # unreachable — die() exits
 
     @staticmethod
-    def _raise_on_refresh_error(resp: requests.Response) -> None:
+    def _die_on_refresh_error(resp: requests.Response) -> None:
         """Translate refresh-endpoint failures into actionable die() calls."""
         if resp.status_code == 400:
             try:
