@@ -12,6 +12,7 @@ from __future__ import annotations
 import json
 import subprocess
 import time
+from typing import Any
 
 import pytest
 
@@ -27,8 +28,12 @@ def qbo(*args: str, stdin: str | None = None) -> subprocess.CompletedProcess:
     )
 
 
-def qbo_json(*args: str, stdin: str | None = None) -> dict | list:
-    """Run qbo CLI, parse JSON output, assert success."""
+def qbo_json(*args: str, stdin: str | None = None) -> Any:
+    """Run qbo CLI, parse JSON output, assert success.
+
+    Returns the parsed JSON as ``Any`` because QBO responses may be either a
+    dict (single entity wrappers) or a list (query row sets).
+    """
     r = qbo(*args, "-o", "json", stdin=stdin)
     assert r.returncode == 0, f"stderr: {r.stderr}"
     return json.loads(r.stdout)

@@ -287,7 +287,7 @@ class TestFindGlSection:
     def test_id_preferred_over_name(self):
         idx = self._make_index()
         result = _find_gl_section(idx, "Revenue", "100")
-        assert result.id == "100"
+        assert result.id == "100"  # type: ignore[union-attr]
 
     def test_suffix_fallback(self):
         idx = self._make_index()

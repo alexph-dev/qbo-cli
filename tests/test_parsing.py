@@ -102,7 +102,7 @@ class TestParseGlRows:
 
     def test_empty_rows(self):
         assert _parse_gl_rows({}) == []
-        assert _parse_gl_rows(None) == []
+        assert _parse_gl_rows(None) == []  # type: ignore[arg-type]
         assert _parse_gl_rows({"Row": []}) == []
 
     def test_direct_transactions_on_parent(self, gl_fixture):
@@ -172,7 +172,7 @@ class TestComputeSubtotal:
         assert cnt == 5  # 3 + 1 + 1
 
     def test_empty_tree(self):
-        idx = {}
+        idx: dict[str, GLSection] = {}
         node = {"name": "Missing", "id": "999", "children": []}
         amt, cnt = _compute_subtotal(idx, node)
         assert amt == pytest.approx(0.0)
