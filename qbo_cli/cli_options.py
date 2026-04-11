@@ -8,6 +8,7 @@ report parameter building in one leaf module.
 
 from __future__ import annotations
 
+import contextlib
 import json
 import re
 import sys
@@ -43,11 +44,8 @@ def _parse_date(value: str) -> str:
     # DD.MM.YYYY or DD/MM/YYYY
     for sep, fmt in [(".", "%d.%m.%Y"), ("/", "%d/%m/%Y")]:
         if sep in value:
-            try:
-                dt = datetime.strptime(value, fmt)
-                return dt.strftime("%Y-%m-%d")
-            except ValueError:
-                pass
+            with contextlib.suppress(ValueError):
+                return datetime.strptime(value, fmt).strftime("%Y-%m-%d")
     die(f"Cannot parse date '{value}'. Use YYYY-MM-DD or DD.MM.YYYY.")
     return ""  # unreachable
 
