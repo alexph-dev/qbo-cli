@@ -68,11 +68,8 @@ class TokenManager:
         """Return a valid access token, refreshing if needed."""
         tokens = self.load()
         self._warn_refresh_expiry(tokens)
-        expires_at = tokens.get("expires_at", 0)
-
-        if time.time() < expires_at - REFRESH_MARGIN_SEC:
+        if _is_token_fresh(tokens):
             return tokens["access_token"]
-
         return self._locked_refresh(tokens)
 
     def _warn_refresh_expiry(self, tokens: dict):
@@ -96,7 +93,7 @@ class TokenManager:
             try:
                 # Re-read — another process may have refreshed
                 current = self.load()
-                if time.time() < current["expires_at"] - REFRESH_MARGIN_SEC:
+                if _is_token_fresh(current):
                     return current["access_token"]
 
                 new_tokens = self._do_refresh(current)
@@ -107,21 +104,52 @@ class TokenManager:
 
     def _do_refresh(self, tokens: dict) -> dict:
         """Call Intuit token endpoint to refresh."""
+        resp = self._post_token_endpoint(
+            {"grant_type": "refresh_token", "refresh_token": tokens["refresh_token"]},
+            failure_label="Token refresh",
+        )
+        self._raise_on_refresh_error(resp)
+        return _build_token_envelope(
+            resp.json(),
+            realm_id=tokens.get("realm_id", self.config.realm_id),
+            created_at=tokens.get("created_at", time.time()),
+        )
+
+    def exchange_code(self, auth_code: str, realm_id: str) -> dict:
+        """Exchange authorization code for tokens."""
+        resp = self._post_token_endpoint(
+            {
+                "grant_type": "authorization_code",
+                "code": auth_code,
+                "redirect_uri": self.config.redirect_uri,
+            },
+            failure_label="Code exchange",
+        )
+        if not resp.ok:
+            die(f"Code exchange failed (HTTP {resp.status_code}): {resp.text[:500]}")
+
+        tokens = _build_token_envelope(resp.json(), realm_id=realm_id, created_at=time.time())
+        self.save(tokens)
+        return tokens
+
+    def _post_token_endpoint(self, payload: dict, *, failure_label: str) -> requests.Response:
+        """POST to Intuit token endpoint with shared error handling."""
         try:
-            resp = requests.post(
+            return requests.post(
                 TOKEN_URL,
-                data={
-                    "grant_type": "refresh_token",
-                    "refresh_token": tokens["refresh_token"],
-                },
+                data=payload,
                 auth=(self.config.client_id, self.config.client_secret),
                 timeout=30,
             )
         except requests.ConnectionError:
-            die("Network error during token refresh. Check your connection.")
+            die(f"Network error during {failure_label.lower()}. Check your connection.")
         except requests.Timeout:
-            die("Timeout during token refresh. Intuit OAuth may be down.")
+            die(f"Timeout during {failure_label.lower()}. Intuit OAuth may be down.")
+        return None  # unreachable — die() exits
 
+    @staticmethod
+    def _raise_on_refresh_error(resp: requests.Response) -> None:
+        """Translate refresh-endpoint failures into actionable die() calls."""
         if resp.status_code == 400:
             try:
                 body = resp.json()
@@ -138,54 +166,26 @@ class TokenManager:
         if not resp.ok:
             die(f"Token refresh failed (HTTP {resp.status_code}): {resp.text[:500]}")
 
-        data = resp.json()
 
-        return {
-            "access_token": data["access_token"],
-            "refresh_token": data["refresh_token"],
-            "expires_at": time.time() + data["expires_in"],
-            "refresh_expires_at": time.time() + data.get("x_refresh_token_expires_in", 8640000),
-            "realm_id": tokens.get("realm_id", self.config.realm_id),
-            "token_type": data.get("token_type", "bearer"),
-            "created_at": tokens.get("created_at", time.time()),
-            "refreshed_at": time.time(),
-        }
+def _is_token_fresh(tokens: dict) -> bool:
+    """Return True when the access token is still within the refresh margin."""
+    expires_at = tokens.get("expires_at", 0)
+    return time.time() < expires_at - REFRESH_MARGIN_SEC
 
-    def exchange_code(self, auth_code: str, realm_id: str) -> dict:
-        """Exchange authorization code for tokens."""
-        try:
-            resp = requests.post(
-                TOKEN_URL,
-                data={
-                    "grant_type": "authorization_code",
-                    "code": auth_code,
-                    "redirect_uri": self.config.redirect_uri,
-                },
-                auth=(self.config.client_id, self.config.client_secret),
-                timeout=30,
-            )
-        except requests.ConnectionError:
-            die("Network error during code exchange. Check your connection.")
-        except requests.Timeout:
-            die("Timeout during code exchange. Intuit OAuth may be down.")
 
-        if not resp.ok:
-            die(f"Code exchange failed (HTTP {resp.status_code}): {resp.text[:500]}")
-
-        data = resp.json()
-
-        tokens = {
-            "access_token": data["access_token"],
-            "refresh_token": data["refresh_token"],
-            "expires_at": time.time() + data["expires_in"],
-            "refresh_expires_at": time.time() + data.get("x_refresh_token_expires_in", 8640000),
-            "realm_id": realm_id,
-            "token_type": data.get("token_type", "bearer"),
-            "created_at": time.time(),
-            "refreshed_at": time.time(),
-        }
-        self.save(tokens)
-        return tokens
+def _build_token_envelope(data: dict, *, realm_id: str, created_at: float) -> dict:
+    """Build the on-disk token envelope from an Intuit token response."""
+    now = time.time()
+    return {
+        "access_token": data["access_token"],
+        "refresh_token": data["refresh_token"],
+        "expires_at": now + data["expires_in"],
+        "refresh_expires_at": now + data.get("x_refresh_token_expires_in", 8640000),
+        "realm_id": realm_id,
+        "token_type": data.get("token_type", "bearer"),
+        "created_at": created_at,
+        "refreshed_at": now,
+    }
 
 
 def cmd_auth_init(args, config, token_mgr):
@@ -298,6 +298,21 @@ def cmd_auth_refresh(args, config, token_mgr):
 def cmd_auth_setup(args, config, token_mgr):
     """Interactive config setup — creates/updates ~/.qbo/config.json with profiled format."""
     profile = config.profile
+    _print_setup_header(profile)
+
+    all_profiles = _load_all_profiles_for_setup()
+    existing = all_profiles.get(profile, {})
+
+    creds = _collect_setup_credentials(existing)
+    if not creds[0] or not creds[1]:
+        die("Client ID and Client Secret are required.")
+
+    all_profiles[profile] = _build_profile_section(existing, profile, creds)
+    _write_profiles_atomic(all_profiles)
+    _print_setup_next_steps(profile)
+
+
+def _print_setup_header(profile: str) -> None:
     print(f"QuickBooks Online CLI — Setup (profile: {profile})")
     print("=" * 40)
     print()
@@ -305,59 +320,61 @@ def cmd_auth_setup(args, config, token_mgr):
     print("Go to: Dashboard → Create an app → Get your Client ID & Secret")
     print()
 
-    # Load existing config (full file, all profiles)
-    all_profiles: dict = {}
-    if CONFIG_PATH.exists():
-        try:
-            raw = json.loads(CONFIG_PATH.read_text())
-        except json.JSONDecodeError:
-            raw = {}
-        # Detect flat format: preserve old values under 'prod' profile
-        if "client_id" in raw:
-            err_print("Migrating from legacy flat config to profiled format.")
-            all_profiles = {"prod": raw}
-        else:
-            all_profiles = raw
 
-    existing = all_profiles.get(profile, {})
+def _load_all_profiles_for_setup() -> dict:
+    """Load full config file (all profiles), migrating legacy flat shape under 'prod'."""
+    if not CONFIG_PATH.exists():
+        return {}
+    try:
+        raw = json.loads(CONFIG_PATH.read_text())
+    except json.JSONDecodeError:
+        return {}
+    if "client_id" in raw:
+        err_print("Migrating from legacy flat config to profiled format.")
+        return {"prod": raw}
+    return raw
 
-    def prompt(label: str, key: str, default: str = "", secret: bool = False) -> str:
-        current = existing.get(key, default)
-        if current and secret:
-            display = current[:4] + "..." + current[-4:] if len(current) > 12 else "***"
-            hint = f" [{display}]"
-        elif current:
-            hint = f" [{current}]"
-        else:
-            hint = ""
-        val = input(f"{label}{hint}: ").strip()
-        return val if val else current
 
-    client_id = prompt("Client ID", "client_id")
-    client_secret = prompt("Client Secret", "client_secret", secret=True)
-    redirect_uri = prompt("Redirect URI", "redirect_uri", DEFAULT_REDIRECT)
+def _prompt_with_hint(label: str, current: str, *, secret: bool = False) -> str:
+    """Prompt for ``label``, showing ``current`` as the default hint (masked when secret)."""
+    if current and secret:
+        display = current[:4] + "..." + current[-4:] if len(current) > 12 else "***"
+        hint = f" [{display}]"
+    elif current:
+        hint = f" [{current}]"
+    else:
+        hint = ""
+    val = input(f"{label}{hint}: ").strip()
+    return val if val else current
 
-    if not client_id or not client_secret:
-        die("Client ID and Client Secret are required.")
 
-    profile_cfg: dict = {
+def _collect_setup_credentials(existing: dict) -> tuple:
+    """Prompt for client_id, client_secret, redirect_uri and return as a tuple."""
+    client_id = _prompt_with_hint("Client ID", existing.get("client_id", ""))
+    client_secret = _prompt_with_hint("Client Secret", existing.get("client_secret", ""), secret=True)
+    redirect_uri = _prompt_with_hint("Redirect URI", existing.get("redirect_uri", DEFAULT_REDIRECT))
+    return client_id, client_secret, redirect_uri
+
+
+def _build_profile_section(existing: dict, profile: str, creds: tuple) -> dict:
+    """Assemble a profile section, preserving realm_id and sandbox where present."""
+    client_id, client_secret, redirect_uri = creds
+    section: dict = {
         "client_id": client_id,
         "client_secret": client_secret,
         "redirect_uri": redirect_uri,
     }
-
-    # Preserve existing realm_id if present in this profile
     if existing.get("realm_id"):
-        profile_cfg["realm_id"] = existing["realm_id"]
-    # Sandbox: preserve existing, or default to True for 'dev' profile
+        section["realm_id"] = existing["realm_id"]
     if existing.get("sandbox"):
-        profile_cfg["sandbox"] = existing["sandbox"]
+        section["sandbox"] = existing["sandbox"]
     elif profile == "dev":
-        profile_cfg["sandbox"] = True
+        section["sandbox"] = True
+    return section
 
-    all_profiles[profile] = profile_cfg
 
-    # Atomic write
+def _write_profiles_atomic(all_profiles: dict) -> None:
+    """Write the full config file atomically with restrictive permissions."""
     QBO_DIR.mkdir(parents=True, exist_ok=True)
     QBO_DIR.chmod(0o700)
     tmp = CONFIG_PATH.with_suffix(".tmp")
@@ -365,11 +382,14 @@ def cmd_auth_setup(args, config, token_mgr):
     tmp.chmod(0o600)
     tmp.rename(CONFIG_PATH)
 
+
+def _print_setup_next_steps(profile: str) -> None:
+    profile_flag = f"--profile {profile} " if profile != "prod" else ""
     print()
     print(f"✓ Config saved to {CONFIG_PATH} (profile: {profile})")
     print()
     print("Next step — authorize with QuickBooks:")
-    print(f"  qbo {f'--profile {profile} ' if profile != 'prod' else ''}auth init")
+    print(f"  qbo {profile_flag}auth init")
     print()
     print("On a headless server (no browser):")
-    print(f"  qbo {f'--profile {profile} ' if profile != 'prod' else ''}auth init --manual")
+    print(f"  qbo {profile_flag}auth init --manual")
