@@ -33,11 +33,11 @@ def _extract_error_detail(resp: requests.Response) -> str:
     """Return a human-readable error message from a failed QBO response."""
     try:
         errors = resp.json().get("Fault", {}).get("Error", [])
+        if not errors:
+            return resp.text[:500]
+        return "; ".join(f"{e.get('Message', '')} — {e.get('Detail', '')}" for e in errors)
     except (ValueError, AttributeError):
         return resp.text[:500]
-    if not errors:
-        return resp.text[:500]
-    return "; ".join(f"{e.get('Message', '')} — {e.get('Detail', '')}" for e in errors)
 
 
 class QBOClient:
