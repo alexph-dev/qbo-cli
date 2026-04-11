@@ -458,6 +458,52 @@ def _collapse_tree(node: dict) -> dict:
     return {"name": node["name"], "id": node["id"], "children": []}
 
 
+def _customer_group_key(cust: str, prefix: str) -> str:
+    """Resolve the bucket key for ``cust`` under an optional ``prefix``.
+
+    With no prefix, customers group by their full name. With a prefix, names
+    that descend from it collapse to ``prefix + first_child`` (one level
+    below); names that do not descend from it group as-is.
+    """
+    if not prefix or not cust.startswith(prefix):
+        return cust
+    first_child = cust[len(prefix) :].split(":", 1)[0]
+    return prefix + first_child
+
+
+def _group_txns_by_customer(
+    txns: list[GLTransaction], customer_filter: str
+) -> tuple[dict[str, list[GLTransaction]], list[GLTransaction]]:
+    """Group transactions by customer key.
+
+    Returns ``(groups, skipped_parent_txns)`` where ``skipped_parent_txns``
+    holds transactions whose customer matches ``customer_filter`` exactly
+    (the parent itself), so callers can render them in a separate ``direct``
+    bucket.
+    """
+    parent = customer_filter.rstrip(":")
+    prefix = parent + ":" if parent else ""
+
+    groups: dict[str, list[GLTransaction]] = defaultdict(list)
+    skipped_parent_txns: list[GLTransaction] = []
+
+    for t in txns:
+        cust = t.customer or "(no customer)"
+        if prefix and cust == parent:
+            skipped_parent_txns.append(t)
+            continue
+        groups[_customer_group_key(cust, prefix)].append(t)
+
+    return groups, skipped_parent_txns
+
+
+def _sort_customer_groups(groups: dict[str, list[GLTransaction]], sort_by: str) -> list[str]:
+    """Order customer keys alphabetically or by absolute group total."""
+    if sort_by == "amount":
+        return sorted(groups, key=lambda c: abs(sum(t.amount for t in groups[c])), reverse=True)
+    return sorted(groups)
+
+
 def _build_by_customer_report(
     section_idx: dict[str, GLSection], node: dict, currency: str, customer_filter: str = "", sort_by: str = "alpha"
 ) -> list[str]:
@@ -497,52 +543,6 @@ def _build_by_customer_report(
     lines.append(_pad_line(f"TOTAL ({len(txns)})", _format_amount(grand_total, currency)))
 
     return lines
-
-
-def _group_txns_by_customer(
-    txns: list[GLTransaction], customer_filter: str
-) -> tuple[dict[str, list[GLTransaction]], list[GLTransaction]]:
-    """Group transactions by customer key.
-
-    Returns ``(groups, skipped_parent_txns)`` where ``skipped_parent_txns``
-    holds transactions whose customer matches ``customer_filter`` exactly
-    (the parent itself), so callers can render them in a separate ``direct``
-    bucket.
-    """
-    parent = customer_filter.rstrip(":")
-    prefix = parent + ":" if parent else ""
-
-    groups: dict[str, list[GLTransaction]] = defaultdict(list)
-    skipped_parent_txns: list[GLTransaction] = []
-
-    for t in txns:
-        cust = t.customer or "(no customer)"
-        if prefix and cust == parent:
-            skipped_parent_txns.append(t)
-            continue
-        groups[_customer_group_key(cust, prefix)].append(t)
-
-    return groups, skipped_parent_txns
-
-
-def _customer_group_key(cust: str, prefix: str) -> str:
-    """Resolve the bucket key for ``cust`` under an optional ``prefix``.
-
-    With no prefix, customers group by their full name. With a prefix, names
-    that descend from it collapse to ``prefix + first_child`` (one level
-    below); names that do not descend from it group as-is.
-    """
-    if not prefix or not cust.startswith(prefix):
-        return cust
-    first_child = cust[len(prefix) :].split(":", 1)[0]
-    return prefix + first_child
-
-
-def _sort_customer_groups(groups: dict[str, list[GLTransaction]], sort_by: str) -> list[str]:
-    """Order customer keys alphabetically or by absolute group total."""
-    if sort_by == "amount":
-        return sorted(groups, key=lambda c: abs(sum(t.amount for t in groups[c])), reverse=True)
-    return sorted(groups)
 
 
 def _txn_to_dict(t: GLTransaction) -> dict:
