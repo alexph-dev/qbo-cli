@@ -1,5 +1,28 @@
 # Changelog
 
+## 0.9.0 (2026-04-11)
+
+- Refactor: marathon split of `qbo_cli/cli.py` (1936 → 109 LOC, −94%) into 13 cohesive modules following Uncle Bob → Fowler → Beck → Metz → Henney → Cannon passes. Zero CLI behavior change.
+- Packaging: ship PEP 561 `py.typed` marker — downstream consumers now get type hints from `qbo_cli`.
+- Packaging: `__version__` derives from `importlib.metadata` (installed) or `pyproject.toml` (source checkouts); `pyproject.toml` is now the single source of truth.
+- Tooling: mypy `check_untyped_defs = true` for stricter type verification of `qbo_cli`.
+- Tooling: ruff `B` (bugbear) rule added to lint selection.
+- Security: OAuth CSRF state now generated via `secrets.token_hex` (canonical stdlib security API) instead of `os.urandom`.
+- Internals: `QBOClient.request` split into `_http_call` + `_send_with_refresh` + `_extract_error_detail`; hardened malformed `Fault` response fallback.
+- Internals: `TokenManager` gains `refresh_if_needed()` public method.
+- Internals: GL report rendering moved to a pure `_RenderCtx` parameter-object pipeline.
+- Tests: 177/177 passing throughout the marathon; no test regression.
+
+## 0.8.0 (2026-03-29)
+
+- Feature: named profiles for dev/prod credential isolation (`--profile`, `QBO_PROFILE`)
+- Feature: `void` operation for QBO transactions
+- Test: black-box sandbox CRUD edge-case suite
+- CI: migrate from pip to uv
+- Docs: merge `docs/` into `02_docs/`
+- Fix: normalize profile names to lowercase
+- Fix: SonarCloud reliability issues
+
 ## 0.7.0 (2026-03-20)
 
 - Feature: `qbo search` — generic local text search over query results
