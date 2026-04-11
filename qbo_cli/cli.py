@@ -28,6 +28,14 @@ from urllib.parse import parse_qs, urlencode, urlparse
 import requests
 
 from qbo_cli import __version__
+from qbo_cli.cli_options import (
+    _build_report_params,  # noqa: F401  (re-exported for tests until wave-1 commit 13)
+    _emit_result,
+    _parse_date,
+    _read_optional_stdin_json,
+    _read_stdin_json,
+    _resolve_fmt,
+)
 from qbo_cli.constants import (
     AUTH_URL,
     CONFIG_PATH,
@@ -752,28 +760,6 @@ def _resolve_customer(client: "QBOClient", name: str) -> tuple[str, str]:
     return c["Id"], c.get("FullyQualifiedName", c["DisplayName"])
 
 
-def _parse_date(value: str) -> str:
-    """Parse flexible date input → YYYY-MM-DD string.
-
-    Accepts: YYYY-MM-DD, DD.MM.YYYY, DD/MM/YYYY, MM/DD/YYYY (if unambiguous).
-    """
-    value = value.strip()
-    # Already ISO
-    if re.match(r"^\d{4}-\d{2}-\d{2}$", value):
-        datetime.strptime(value, "%Y-%m-%d")  # validate
-        return value
-    # DD.MM.YYYY or DD/MM/YYYY
-    for sep, fmt in [(".", "%d.%m.%Y"), ("/", "%d/%m/%Y")]:
-        if sep in value:
-            try:
-                dt = datetime.strptime(value, fmt)
-                return dt.strftime("%Y-%m-%d")
-            except ValueError:
-                pass
-    die(f"Cannot parse date '{value}'. Use YYYY-MM-DD or DD.MM.YYYY.")
-    return ""  # unreachable
-
-
 def _compute_subtotal(section_idx: dict[str, GLSection], node: dict) -> tuple[float, int]:
     """Compute total for a tree node (own + children, recursively)."""
     if not node["children"]:
@@ -1304,60 +1290,16 @@ def cmd_auth_setup(args, config, token_mgr):
     print(f"  qbo {f'--profile {profile} ' if profile != 'prod' else ''}auth init --manual")
 
 
-def _resolve_fmt(args) -> str:
-    """Resolve output format: subcommand -o overrides global -f."""
-    return getattr(args, "output", None) or args.format
-
-
 # ─── Entity Commands ─────────────────────────────────────────────────────────
 
 
 def _make_client(config, token_mgr) -> QBOClient:
-    """Build a client for command handlers."""
+    """Build a client for command handlers.
+
+    Lives in cli.py until `qbo_cli.client` module is extracted; it will move
+    into `cli_options.py` in the client-extraction commit.
+    """
     return QBOClient(config, token_mgr)
-
-
-def _emit_result(result, args) -> None:
-    """Emit command output using the resolved format."""
-    output(result, _resolve_fmt(args))
-
-
-def _read_optional_stdin_json() -> dict | None:
-    """Read JSON from stdin when present, otherwise return None."""
-    if sys.stdin.isatty():
-        return None
-    try:
-        return json.load(sys.stdin)
-    except json.JSONDecodeError:
-        die("Invalid JSON on stdin.")
-
-
-def _read_stdin_json() -> dict:
-    """Read and parse JSON from stdin, or die with helpful error."""
-    if sys.stdin.isatty():
-        die("Pipe JSON body via stdin. Example: echo '{...}' | qbo <command> <entity>")
-    body = _read_optional_stdin_json()
-    if body is None:
-        die("Pipe JSON body via stdin. Example: echo '{...}' | qbo <command> <entity>")
-    return body
-
-
-def _build_report_params(args) -> dict | None:
-    """Build report query params from CLI args."""
-    params = {}
-    if args.start_date:
-        params["start_date"] = _parse_date(args.start_date)
-    if args.end_date:
-        params["end_date"] = _parse_date(args.end_date)
-    if args.date_macro:
-        params["date_macro"] = args.date_macro
-    if args.params:
-        for param in args.params:
-            if "=" not in param:
-                die(f"Invalid param format '{param}'. Use key=value.")
-            key, value = param.split("=", 1)
-            params[key] = value
-    return params or None
 
 
 def cmd_query(args, config, token_mgr):
