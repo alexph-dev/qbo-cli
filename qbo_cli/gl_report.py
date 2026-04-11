@@ -57,6 +57,27 @@ class GLSection:
             txns.extend(c.all_transactions)
         return txns
 
+    def direct_pair(self) -> tuple[float, int]:
+        """(direct_amount, direct_count) — Tell, Don't Ask helper."""
+        return self.direct_amount, self.direct_count
+
+    def total_pair(self) -> tuple[float, int]:
+        """(total_amount, total_count) — Tell, Don't Ask helper."""
+        return self.total_amount, self.total_count
+
+
+_ZERO_PAIR: tuple[float, int] = (0.0, 0)
+
+
+def _direct_pair(section: GLSection | None) -> tuple[float, int]:
+    """None-safe direct totals — collapses ``if section else`` ladders."""
+    return section.direct_pair() if section else _ZERO_PAIR
+
+
+def _total_pair(section: GLSection | None) -> tuple[float, int]:
+    """None-safe rolled-up totals."""
+    return section.total_pair() if section else _ZERO_PAIR
+
 
 def _parse_txn_from_row(cols: list[dict]) -> GLTransaction | None:
     """Parse a Data row's ColData into a GLTransaction."""
@@ -327,15 +348,11 @@ def _resolve_customer(client: "QBOClient", name: str) -> tuple[str, str]:
 
 def _compute_subtotal(section_idx: dict[str, GLSection], node: dict) -> tuple[float, int]:
     """Compute total for a tree node (own + children, recursively)."""
-    if not node["children"]:
-        section = _find_gl_section(section_idx, node["name"], node.get("id", ""))
-        if section:
-            return section.total_amount, section.total_count
-        return 0.0, 0
-
     section = _find_gl_section(section_idx, node["name"], node.get("id", ""))
-    total_amt = section.direct_amount if section else 0.0
-    total_cnt = section.direct_count if section else 0
+    if not node["children"]:
+        return _total_pair(section)
+
+    total_amt, total_cnt = _direct_pair(section)
     for child in node["children"]:
         c_amt, c_cnt = _compute_subtotal(section_idx, child)
         total_amt += c_amt
@@ -369,8 +386,7 @@ def _render_node_lines(
 
     # Leaf node: emit a single padded line plus optional expanded txns.
     if not node["children"]:
-        amt = section.total_amount if section else 0.0
-        cnt = section.total_count if section else 0
+        amt, cnt = _total_pair(section)
         if cnt == 0 and not amt:
             return []
         out = [_pad_line(f"{node['name']} ({cnt})", _format_amount(amt, currency), prefix)]
@@ -383,9 +399,7 @@ def _render_node_lines(
     if subtotal_cnt == 0 and not subtotal_amt:
         return []
 
-    own_cnt = section.direct_count if section else 0
-    own_amt = section.direct_amount if section else 0.0
-
+    own_amt, own_cnt = _direct_pair(section)
     out = []
     if own_cnt > 0:
         out.append(_pad_line(f"{node['name']} ({own_cnt})", _format_amount(own_amt, currency), prefix))
@@ -604,18 +618,14 @@ def _section_tree_to_dict(section_idx: dict[str, GLSection], node: dict) -> dict
     section = _find_gl_section(section_idx, node["name"], node.get("id", ""))
     result: dict = {"name": node["name"], "id": node["id"]}
     if not node["children"]:
-        result["amount"] = section.total_amount if section else 0.0
-        result["count"] = section.total_count if section else 0
+        result["amount"], result["count"] = _total_pair(section)
         txns = section.all_transactions if section else []
         if txns:
             result["transactions"] = [_txn_to_dict(t) for t in sorted(txns, key=lambda x: x.date)]
         return result
 
-    result["direct_amount"] = section.direct_amount if section else 0.0
-    result["direct_count"] = section.direct_count if section else 0
-    amt, cnt = _compute_subtotal(section_idx, node)
-    result["total_amount"] = amt
-    result["total_count"] = cnt
+    result["direct_amount"], result["direct_count"] = _direct_pair(section)
+    result["total_amount"], result["total_count"] = _compute_subtotal(section_idx, node)
     result["children"] = [_section_tree_to_dict(section_idx, c) for c in node["children"]]
     if section and section.transactions:
         result["transactions"] = [_txn_to_dict(t) for t in sorted(section.transactions, key=lambda x: x.date)]
