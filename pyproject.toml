@@ -58,6 +58,7 @@ packages = ["qbo_cli"]
 "qbo_cli/py.typed" = "qbo_cli/py.typed"
 
 [tool.mypy]
+files = ["qbo_cli", "tests"]
 check_untyped_defs = true
 
 [tool.ruff]
