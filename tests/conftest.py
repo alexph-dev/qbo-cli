@@ -9,7 +9,9 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from qbo_cli.cli import Config, QBOClient, TokenManager
+from qbo_cli.auth import TokenManager
+from qbo_cli.client import QBOClient
+from qbo_cli.config import Config
 
 FIXTURES_DIR = Path(__file__).parent / "fixtures"
 

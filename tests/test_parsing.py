@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from qbo_cli.cli import (
+from qbo_cli.gl_report import (
     GLSection,
     _build_section_index,
     _compute_subtotal,
@@ -205,7 +205,7 @@ class TestGLSectionCachedProperty:
         assert parent.total_count == 5
 
     def test_all_transactions(self):
-        from qbo_cli.cli import GLTransaction
+        from qbo_cli.gl_report import GLTransaction
 
         parent = GLSection("Parent", "1")
         t1 = GLTransaction(date="2025-01-01", amount=100.0)

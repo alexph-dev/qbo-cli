@@ -6,21 +6,23 @@ from datetime import datetime
 
 import pytest
 
-from qbo_cli.cli import (
+from qbo_cli.gl_report import (
     GLSection,
     GLTransaction,
     _build_section_index,
     _collapse_tree,
     _find_gl_section,
+    _txn_to_dict,
+)
+from qbo_cli.output import (
     _format_amount,
     _format_date_range,
     _is_month_end,
     _is_month_start,
     _pad_line,
-    _qbo_escape,
     _truncate,
-    _txn_to_dict,
 )
+from qbo_cli.qbo_query import _qbo_escape
 
 # ─── _qbo_escape ──────────────────────────────────────────────────────────────
 

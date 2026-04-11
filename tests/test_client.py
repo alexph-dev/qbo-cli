@@ -6,7 +6,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from qbo_cli.cli import QBOClient
+from qbo_cli.client import QBOClient
 
 # ─── Query pagination ─────────────────────────────────────────────────────────
 

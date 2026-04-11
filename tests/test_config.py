@@ -8,7 +8,8 @@ from unittest.mock import patch
 
 import pytest
 
-from qbo_cli.cli import DEFAULT_REDIRECT, Config
+from qbo_cli.config import Config
+from qbo_cli.constants import DEFAULT_REDIRECT
 
 
 def _clear_qbo_env():

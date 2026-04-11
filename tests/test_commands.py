@@ -9,22 +9,23 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from qbo_cli.cli import (
-    _REPORT_ALIAS_MAP,
-    REPORT_REGISTRY,
-    QBOClient,
-    _format_report_list,
-    _resolve_fmt,
-    _resolve_profile,
-    _resolve_report_name,
+from qbo_cli.cli import _resolve_profile, main
+from qbo_cli.cli_options import _resolve_fmt
+from qbo_cli.client import QBOClient
+from qbo_cli.commands import (
     cmd_create,
-    cmd_gl_report,
     cmd_query,
     cmd_report,
     cmd_search,
     cmd_update,
     cmd_void,
-    main,
+)
+from qbo_cli.gl_report import cmd_gl_report
+from qbo_cli.report_registry import (
+    _REPORT_ALIAS_MAP,
+    REPORT_REGISTRY,
+    _format_report_list,
+    _resolve_report_name,
 )
 from tests.conftest import make_args
 
@@ -739,7 +740,7 @@ class TestResolveProfile:
 
 class TestCmdAuthSetup:
     def test_setup_writes_prod_profile(self, tmp_path, fake_config, fake_token_mgr):
-        from qbo_cli.cli import cmd_auth_setup
+        from qbo_cli.auth import cmd_auth_setup
 
         config_file = tmp_path / "config.json"
         fake_config.profile = "prod"
@@ -756,7 +757,7 @@ class TestCmdAuthSetup:
         assert data["prod"]["client_secret"] == "new-secret"
 
     def test_setup_writes_dev_profile_preserves_prod(self, tmp_path, fake_config, fake_token_mgr):
-        from qbo_cli.cli import cmd_auth_setup
+        from qbo_cli.auth import cmd_auth_setup
 
         config_file = tmp_path / "config.json"
         config_file.write_text(json.dumps({"prod": {"client_id": "prod-id", "client_secret": "prod-secret"}}))
@@ -773,7 +774,7 @@ class TestCmdAuthSetup:
         assert data["dev"]["client_id"] == "dev-id"
 
     def test_setup_on_empty_config(self, tmp_path, fake_config, fake_token_mgr):
-        from qbo_cli.cli import cmd_auth_setup
+        from qbo_cli.auth import cmd_auth_setup
 
         config_file = tmp_path / "config.json"
         fake_config.profile = "prod"
@@ -790,7 +791,7 @@ class TestCmdAuthSetup:
         assert data["prod"]["client_secret"] == "y"
 
     def test_setup_empty_creds_dies(self, tmp_path, fake_config, fake_token_mgr):
-        from qbo_cli.cli import cmd_auth_setup
+        from qbo_cli.auth import cmd_auth_setup
 
         config_file = tmp_path / "config.json"
         fake_config.profile = "prod"
@@ -804,7 +805,7 @@ class TestCmdAuthSetup:
                 cmd_auth_setup(args, fake_config, fake_token_mgr)
 
     def test_setup_migrates_flat_config(self, tmp_path, fake_config, fake_token_mgr, capsys):
-        from qbo_cli.cli import cmd_auth_setup
+        from qbo_cli.auth import cmd_auth_setup
 
         config_file = tmp_path / "config.json"
         config_file.write_text(
