@@ -104,14 +104,14 @@ class TokenManager:
                 if _is_token_fresh(current):
                     return current["access_token"]
 
-                new_tokens = self._do_refresh(current)
+                new_tokens = self._fetch_fresh_tokens(current)
                 self.save(new_tokens)
                 return new_tokens["access_token"]
             finally:
                 fcntl.flock(lock_file, fcntl.LOCK_UN)
 
-    def _do_refresh(self, tokens: dict) -> dict:
-        """Call Intuit token endpoint to refresh."""
+    def _fetch_fresh_tokens(self, tokens: dict) -> dict:
+        """Call Intuit token endpoint to exchange a refresh token for a fresh envelope."""
         resp = self._post_token_endpoint(
             {"grant_type": "refresh_token", "refresh_token": tokens["refresh_token"]},
             failure_label="Token refresh",
