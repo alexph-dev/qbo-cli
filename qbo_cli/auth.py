@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import fcntl
 import json
-import os
+import secrets
 import sys
 import time
 from http.server import BaseHTTPRequestHandler, HTTPServer
@@ -42,7 +42,7 @@ class TokenManager:
             legacy = QBO_DIR / "tokens.json"
             if self.config.profile == "prod" and legacy.exists():
                 legacy.rename(tp)
-                os.chmod(tp, 0o600)
+                tp.chmod(0o600)
                 err_print(f"Migrated {legacy} -> {tp}")
             else:
                 die(f"No tokens found for profile '{self.config.profile}'. Run: qbo auth init")
@@ -96,7 +96,7 @@ class TokenManager:
         QBO_DIR.mkdir(parents=True, exist_ok=True)
 
         with open(lock_path, "w") as lock_file:
-            os.chmod(lock_path, 0o600)
+            lock_path.chmod(0o600)
             fcntl.flock(lock_file, fcntl.LOCK_EX)
             try:
                 # Re-read — another process may have refreshed
@@ -199,7 +199,7 @@ def _build_token_envelope(data: dict, *, realm_id: str, created_at: float) -> di
 def cmd_auth_init(args, config, token_mgr):
     """Interactive OAuth authorization flow."""
     config.validate()
-    oauth_state = os.urandom(16).hex()
+    oauth_state = secrets.token_hex(16)
     auth_url = _build_auth_url(config, oauth_state)
 
     if args.manual:
