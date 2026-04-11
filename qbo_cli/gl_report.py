@@ -39,7 +39,7 @@ class GLSection:
         self.id = acct_id
         self.direct_amount = 0.0
         self.direct_count = 0
-        self.children: list["GLSection"] = []
+        self.children: list[GLSection] = []
         self.transactions: list[GLTransaction] = []
 
     @functools.cached_property
@@ -210,7 +210,7 @@ def _extract_dates_from_gl(gl_data: dict) -> tuple[str | None, str | None]:
     return dates[0], dates[-1]
 
 
-def _discover_account_tree(client: "QBOClient", account_ref: str) -> dict:
+def _discover_account_tree(client: QBOClient, account_ref: str) -> dict:
     """Build account tree from QBO by fetching sub-accounts under a parent.
     account_ref can be a numeric ID or account name (fuzzy match).
     """
@@ -254,7 +254,7 @@ def _discover_account_tree(client: "QBOClient", account_ref: str) -> dict:
     }
 
 
-def _list_all_accounts_data(client: "QBOClient") -> dict:
+def _list_all_accounts_data(client: QBOClient) -> dict:
     """Return all top-level accounts grouped by type."""
     all_accts = client.query("SELECT Id, Name, FullyQualifiedName, AccountType, SubAccount, ParentRef FROM Account")
 
@@ -293,7 +293,7 @@ def _list_all_accounts_data(client: "QBOClient") -> dict:
     }
 
 
-def _list_all_accounts(client: "QBOClient") -> None:
+def _list_all_accounts(client: QBOClient) -> None:
     """Print all top-level accounts grouped by type."""
     account_data = _list_all_accounts_data(client)
     for index, group in enumerate(account_data["groups"]):
@@ -317,7 +317,7 @@ def _print_account_tree(node: dict, indent: int = 0):
         _print_account_tree(child, indent + 1)
 
 
-def _resolve_customer(client: "QBOClient", name: str) -> tuple[str, str]:
+def _resolve_customer(client: QBOClient, name: str) -> tuple[str, str]:
     """Resolve customer display name to (id, full_name)."""
     if name.isdigit():
         data = client.get("Customer", name)
@@ -575,7 +575,7 @@ def _serialize_txn(txn: GLTransaction) -> dict:
     }
 
 
-def _handle_list_accounts_mode(args, client: "QBOClient", out_mode: str) -> None:
+def _handle_list_accounts_mode(args, client: QBOClient, out_mode: str) -> None:
     """Handle the `--list-accounts` branch of `gl-report`."""
     if out_mode not in ("text", "json"):
         die("gl-report --list-accounts supports text or json output only.")
@@ -599,7 +599,7 @@ def _resolve_gl_date_window(args) -> tuple[str, str, bool]:
     return start_date, end_date, args.start is None
 
 
-def _fetch_gl_data(client: "QBOClient", start_date: str, end_date: str, method: str, cust_id: str | None) -> dict:
+def _fetch_gl_data(client: QBOClient, start_date: str, end_date: str, method: str, cust_id: str | None) -> dict:
     """Fetch GL report from QBO and bail out if it has no data."""
     params = {
         "start_date": start_date,
