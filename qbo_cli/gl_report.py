@@ -343,24 +343,17 @@ def _compute_subtotal(section_idx: dict[str, GLSection], node: dict) -> tuple[fl
     return total_amt, total_cnt
 
 
-def _build_report_lines(
-    section_idx: dict[str, GLSection],
-    node: dict,
-    currency: str,
-    indent: int = 0,
-    lines: list | None = None,
-    expanded: bool = False,
-) -> list[str]:
-    """Render a hierarchical GL report rooted at ``node`` into text lines.
-
-    Accepts an optional ``lines`` accumulator for backward compatibility:
-    callers may pre-seed a header and pass it in to be appended in place. The
-    return value is the same list (or a fresh one when ``lines is None``).
-    """
-    if lines is None:
-        lines = []
-    lines.extend(_render_node_lines(section_idx, node, currency, indent, expanded))
-    return lines
+def _format_txn_lines(txns: list[GLTransaction], currency: str, indent: int) -> list[str]:
+    """Return formatted transaction lines (sorted by date) for ``txns``."""
+    prefix = "  " * indent
+    return [
+        _pad_line(
+            f"{t.date}  {t.txn_type:<12s} {(t.memo[:40] + '…') if len(t.memo) > 40 else t.memo}",
+            _format_amount(t.amount, currency),
+            prefix,
+        )
+        for t in sorted(txns, key=lambda x: x.date)
+    ]
 
 
 def _render_node_lines(
@@ -408,17 +401,24 @@ def _render_node_lines(
     return out
 
 
-def _format_txn_lines(txns: list[GLTransaction], currency: str, indent: int) -> list[str]:
-    """Return formatted transaction lines (sorted by date) for ``txns``."""
-    prefix = "  " * indent
-    return [
-        _pad_line(
-            f"{t.date}  {t.txn_type:<12s} {(t.memo[:40] + '…') if len(t.memo) > 40 else t.memo}",
-            _format_amount(t.amount, currency),
-            prefix,
-        )
-        for t in sorted(txns, key=lambda x: x.date)
-    ]
+def _build_report_lines(
+    section_idx: dict[str, GLSection],
+    node: dict,
+    currency: str,
+    indent: int = 0,
+    lines: list | None = None,
+    expanded: bool = False,
+) -> list[str]:
+    """Render a hierarchical GL report rooted at ``node`` into text lines.
+
+    Accepts an optional ``lines`` accumulator for backward compatibility:
+    callers may pre-seed a header and pass it in to be appended in place. The
+    return value is the same list (or a fresh one when ``lines is None``).
+    """
+    if lines is None:
+        lines = []
+    lines.extend(_render_node_lines(section_idx, node, currency, indent, expanded))
+    return lines
 
 
 def _build_txns_report(section_idx: dict[str, GLSection], node: dict, currency: str) -> list[str]:
