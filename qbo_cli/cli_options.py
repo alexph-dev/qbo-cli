@@ -2,9 +2,8 @@
 
 Pure helpers used by command handlers and the GL-report engine. Breaks the
 otherwise-circular dependency between commands.py and gl_report.py by hosting
-format resolution, date parsing, stdin JSON reading, and report parameter
-building in one leaf module. `_make_client` is added to this module in a
-later extraction commit once `qbo_cli.client` exists.
+format resolution, date parsing, stdin JSON reading, client construction, and
+report parameter building in one leaf module.
 """
 
 from __future__ import annotations
@@ -14,6 +13,9 @@ import re
 import sys
 from datetime import datetime
 
+from qbo_cli.auth import TokenManager
+from qbo_cli.client import QBOClient
+from qbo_cli.config import Config
 from qbo_cli.errors import die
 from qbo_cli.output import output
 
@@ -21,6 +23,11 @@ from qbo_cli.output import output
 def _resolve_fmt(args) -> str:
     """Resolve output format: subcommand -o overrides global -f."""
     return getattr(args, "output", None) or args.format
+
+
+def _make_client(config: Config, token_mgr: TokenManager) -> QBOClient:
+    """Build a client for command handlers."""
+    return QBOClient(config, token_mgr)
 
 
 def _parse_date(value: str) -> str:

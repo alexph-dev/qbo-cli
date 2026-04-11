@@ -72,7 +72,7 @@ class TestRetry401:
 
         fake_token_mgr._locked_refresh = MagicMock(return_value="new-token")
 
-        with patch("qbo_cli.cli.requests.request", side_effect=[mock_401, mock_200]) as mock_req:
+        with patch("qbo_cli.client.requests.request", side_effect=[mock_401, mock_200]) as mock_req:
             result = client.request("GET", "customer/1")
 
         assert result == {"Customer": {"Id": "1"}}
@@ -103,7 +103,7 @@ class TestErrorFormatting:
             }
         }
 
-        with patch("qbo_cli.cli.requests.request", return_value=mock_resp):
+        with patch("qbo_cli.client.requests.request", return_value=mock_resp):
             with pytest.raises(SystemExit):
                 client.request("GET", "customer/999")
 

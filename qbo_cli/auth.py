@@ -12,7 +12,6 @@ from urllib.parse import parse_qs, urlencode, urlparse
 
 import requests
 
-from qbo_cli.cli_options import _resolve_fmt
 from qbo_cli.config import Config
 from qbo_cli.constants import (
     AUTH_URL,
@@ -286,7 +285,7 @@ def cmd_auth_status(args, config, token_mgr):
         "refresh_token_remaining_days": max(0, round((refresh_exp - now) / 86400, 1)),
         "last_refreshed": time.ctime(tokens.get("refreshed_at", 0)),
     }
-    output(info, _resolve_fmt(args))
+    output(info, getattr(args, "output", None) or args.format)
 
 
 def cmd_auth_refresh(args, config, token_mgr):
