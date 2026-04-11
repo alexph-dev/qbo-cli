@@ -81,6 +81,34 @@ def _parse_txn_from_row(cols: list[dict]) -> GLTransaction | None:
     )
 
 
+def _accumulate_direct_txns(section: GLSection, inner_rows: dict) -> None:
+    """Append direct Data-row transactions from inner_rows onto section."""
+    if not inner_rows or "Row" not in inner_rows:
+        return
+    for inner_row in inner_rows["Row"]:
+        if inner_row.get("type") != "Data":
+            continue
+        txn = _parse_txn_from_row(inner_row.get("ColData", []))
+        if txn is None:
+            continue
+        section.direct_amount += txn.amount
+        section.direct_count += 1
+        section.transactions.append(txn)
+
+
+def _absorb_direct_placeholders(section: GLSection) -> None:
+    """Fold any unnamed `__direct__` child sections into their parent."""
+    kept: list[GLSection] = []
+    for child in section.children:
+        if child.name == "__direct__":
+            section.direct_amount += child.direct_amount
+            section.direct_count += child.direct_count
+            section.transactions.extend(child.transactions)
+        else:
+            kept.append(child)
+    section.children = kept
+
+
 def _parse_gl_rows(rows_obj: dict) -> list[GLSection]:
     """Parse GL Rows object into list of GLSection."""
     sections: list[GLSection] = []
@@ -94,41 +122,18 @@ def _parse_gl_rows(rows_obj: dict) -> list[GLSection]:
         header_cols = row.get("Header", {}).get("ColData", [])
         name = header_cols[0].get("value", "").strip() if header_cols else ""
         acct_id = header_cols[0].get("id", "") if header_cols else ""
+        inner_rows = row.get("Rows", {})
 
         if not name:
             placeholder = GLSection("__direct__", acct_id)
-            inner_rows = row.get("Rows", {})
-            if inner_rows and "Row" in inner_rows:
-                for inner_row in inner_rows["Row"]:
-                    if inner_row.get("type") == "Data":
-                        txn = _parse_txn_from_row(inner_row.get("ColData", []))
-                        if txn:
-                            placeholder.direct_amount += txn.amount
-                            placeholder.direct_count += 1
-                            placeholder.transactions.append(txn)
+            _accumulate_direct_txns(placeholder, inner_rows)
             sections.append(placeholder)
             continue
 
         section = GLSection(name, acct_id)
-        inner_rows = row.get("Rows", {})
-
-        if inner_rows and "Row" in inner_rows:
-            for inner_row in inner_rows["Row"]:
-                if inner_row.get("type") == "Data":
-                    txn = _parse_txn_from_row(inner_row.get("ColData", []))
-                    if txn:
-                        section.direct_amount += txn.amount
-                        section.direct_count += 1
-                        section.transactions.append(txn)
-
+        _accumulate_direct_txns(section, inner_rows)
         section.children = _parse_gl_rows(inner_rows)
-        absorbed = [c for c in section.children if c.name == "__direct__"]
-        for a in absorbed:
-            section.direct_amount += a.direct_amount
-            section.direct_count += a.direct_count
-            section.transactions.extend(a.transactions)
-        section.children = [c for c in section.children if c.name != "__direct__"]
-
+        _absorb_direct_placeholders(section)
         sections.append(section)
 
     return sections
