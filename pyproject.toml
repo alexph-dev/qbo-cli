@@ -51,10 +51,19 @@ markers = [
 ]
 addopts = "-m 'not live' --tb=short -q"
 
+[tool.hatch.build.targets.wheel]
+packages = ["qbo_cli"]
+
+[tool.hatch.build.targets.wheel.force-include]
+"qbo_cli/py.typed" = "qbo_cli/py.typed"
+
+[tool.mypy]
+check_untyped_defs = true
+
 [tool.ruff]
 target-version = "py39"
 line-length = 120
 
 [tool.ruff.lint]
-select = ["E", "F", "W", "I"]
+select = ["E", "F", "W", "I", "B"]
 ignore = ["E501"]  # line length handled by formatter
