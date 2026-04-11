@@ -21,16 +21,19 @@ def cmd_query(args, config, token_mgr):
     _emit_result(results, args)
 
 
+def _row_matches(needle: str, *, case_sensitive: bool):
+    """Build a predicate that finds ``needle`` in a row's JSON serialization."""
+    if case_sensitive:
+        return lambda row: needle in json.dumps(row, default=str, ensure_ascii=False)
+    folded = needle.casefold()
+    return lambda row: folded in json.dumps(row, default=str, ensure_ascii=False).casefold()
+
+
 def cmd_search(args, config, token_mgr):
     client = _make_client(config, token_mgr)
     results = client.query(args.sql, max_pages=args.max_pages)
-
-    if args.case_sensitive:
-        matches = [row for row in results if args.text in json.dumps(row, default=str, ensure_ascii=False)]
-    else:
-        needle = args.text.casefold()
-        matches = [row for row in results if needle in json.dumps(row, default=str, ensure_ascii=False).casefold()]
-
+    matcher = _row_matches(args.text, case_sensitive=args.case_sensitive)
+    matches = [row for row in results if matcher(row)]
     _emit_result(matches, args)
 
 
