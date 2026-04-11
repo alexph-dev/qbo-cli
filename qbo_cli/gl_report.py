@@ -624,13 +624,16 @@ def _section_tree_to_dict(section_idx: dict[str, GLSection], node: dict) -> dict
 
 def cmd_gl_report(args, config, token_mgr):
     """Generate a hierarchical General Ledger report."""
+    # Phase 1: setup client and resolve output format.
     client = _make_client(config, token_mgr)
     out_mode = _resolve_fmt(args)
 
+    # Phase 2: short-circuit on --list-accounts (separate, non-report mode).
     if args.list_accounts:
         _handle_list_accounts_mode(args, client, out_mode)
         return
 
+    # Phase 3: resolve inputs (customer, dates, account tree, GL data).
     cust_id, cust_name = (None, None)
     if args.customer:
         cust_id, cust_name = _resolve_customer(client, args.customer)
@@ -646,6 +649,7 @@ def cmd_gl_report(args, config, token_mgr):
     gl_sections = _parse_gl_rows(gl_data.get("Rows", {}))
     section_idx = _build_section_index(gl_sections)
 
+    # Phase 4: shape the tree and date window for display.
     if args.no_sub:
         account_tree = _collapse_tree(account_tree)
 
@@ -655,9 +659,11 @@ def cmd_gl_report(args, config, token_mgr):
         if actual_first:
             display_start = actual_first
 
+    # Phase 5: validate output mode (tsv unsupported for GL).
     if out_mode == "tsv":
         die("gl-report does not support tsv output. Use text, json, txns, or expanded.")
 
+    # Phase 6: compute presentation values shared across renderers.
     title = f"General Ledger Report - {cust_name}" if cust_name else "General Ledger Report"
     date_range = _format_date_range(display_start, end_date)
     currency = args.currency
@@ -666,6 +672,7 @@ def cmd_gl_report(args, config, token_mgr):
     if args.by_customer and out_mode in ("json", "txns"):
         err_print("Warning: --by-customer is only supported with text/expanded output. Ignoring -g flag.")
 
+    # Phase 7: dispatch on output mode.
     if out_mode == "json":
         report_data: dict = {
             "start_date": display_start,
