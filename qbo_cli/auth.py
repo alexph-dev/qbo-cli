@@ -320,7 +320,7 @@ def cmd_auth_setup(args, config, token_mgr):
     profile = config.profile
     _print_setup_header(profile)
 
-    all_profiles = _load_all_profiles_for_setup()
+    all_profiles = _load_all_profiles()
     existing = all_profiles.get(profile, {})
 
     creds = _collect_setup_credentials(existing)
@@ -341,7 +341,7 @@ def _print_setup_header(profile: str) -> None:
     print()
 
 
-def _load_all_profiles_for_setup() -> dict:
+def _load_all_profiles() -> dict:
     """Load full config file (all profiles), migrating legacy flat shape under 'prod'."""
     if not CONFIG_PATH.exists():
         return {}
