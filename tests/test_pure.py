@@ -12,7 +12,7 @@ from qbo_cli.gl_report import (
     _build_section_index,
     _collapse_tree,
     _find_gl_section,
-    _txn_to_dict,
+    _serialize_txn,
 )
 from qbo_cli.output import (
     _format_amount,
@@ -184,10 +184,10 @@ class TestTruncate:
         assert result == "this is t…"
 
 
-# ─── _txn_to_dict ─────────────────────────────────────────────────────────────
+# ─── _serialize_txn ───────────────────────────────────────────────────────────
 
 
-class TestTxnToDict:
+class TestSerializeTxn:
     def test_round_trip(self):
         txn = GLTransaction(
             date="2025-01-15",
@@ -199,7 +199,7 @@ class TestTxnToDict:
             account="Revenue",
             amount=5000.0,
         )
-        d = _txn_to_dict(txn)
+        d = _serialize_txn(txn)
         assert d == {
             "date": "2025-01-15",
             "type": "Invoice",
@@ -213,7 +213,7 @@ class TestTxnToDict:
 
     def test_empty_fields(self):
         txn = GLTransaction(amount=0.0)
-        d = _txn_to_dict(txn)
+        d = _serialize_txn(txn)
         assert d["date"] == ""
         assert d["amount"] == pytest.approx(0.0)
 

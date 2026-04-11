@@ -554,17 +554,17 @@ def _build_by_customer_report(
     return lines
 
 
-def _txn_to_dict(t: GLTransaction) -> dict:
+def _serialize_txn(txn: GLTransaction) -> dict:
     """Serialize a GLTransaction to a plain dict."""
     return {
-        "date": t.date,
-        "type": t.txn_type,
-        "id": t.txn_id,
-        "num": t.num,
-        "customer": t.customer,
-        "memo": t.memo,
-        "account": t.account,
-        "amount": t.amount,
+        "date": txn.date,
+        "type": txn.txn_type,
+        "id": txn.txn_id,
+        "num": txn.num,
+        "customer": txn.customer,
+        "memo": txn.memo,
+        "account": txn.account,
+        "amount": txn.amount,
     }
 
 
@@ -608,7 +608,7 @@ def _fetch_gl_data(client: "QBOClient", start_date: str, end_date: str, method: 
     return gl_data
 
 
-def _section_tree_to_dict(section_idx: dict[str, GLSection], node: dict) -> dict:
+def _serialize_section_tree(section_idx: dict[str, GLSection], node: dict) -> dict:
     """Serialize an account-tree node into a JSON-friendly dict using section_idx."""
     section = _find_gl_section(section_idx, node["name"], node.get("id", ""))
     result: dict = {"name": node["name"], "id": node["id"]}
@@ -616,14 +616,14 @@ def _section_tree_to_dict(section_idx: dict[str, GLSection], node: dict) -> dict
         result["amount"], result["count"] = _total_pair(section)
         txns = section.all_transactions if section else []
         if txns:
-            result["transactions"] = [_txn_to_dict(t) for t in sorted(txns, key=lambda x: x.date)]
+            result["transactions"] = [_serialize_txn(t) for t in sorted(txns, key=lambda x: x.date)]
         return result
 
     result["direct_amount"], result["direct_count"] = _direct_pair(section)
     result["total_amount"], result["total_count"] = _compute_subtotal(section_idx, node)
-    result["children"] = [_section_tree_to_dict(section_idx, c) for c in node["children"]]
+    result["children"] = [_serialize_section_tree(section_idx, c) for c in node["children"]]
     if section and section.transactions:
-        result["transactions"] = [_txn_to_dict(t) for t in sorted(section.transactions, key=lambda x: x.date)]
+        result["transactions"] = [_serialize_txn(t) for t in sorted(section.transactions, key=lambda x: x.date)]
     return result
 
 
@@ -683,7 +683,7 @@ def cmd_gl_report(args, config, token_mgr):
             "start_date": display_start,
             "end_date": end_date,
             "method": args.method,
-            "account": _section_tree_to_dict(section_idx, account_tree),
+            "account": _serialize_section_tree(section_idx, account_tree),
             "total": total_amt,
         }
         if cust_name:
