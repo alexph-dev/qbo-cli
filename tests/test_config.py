@@ -340,9 +340,9 @@ class TestQboSandboxEnvRejected:
         with (
             patch("qbo_cli.config.CONFIG_PATH", config_file),
             patch.dict("os.environ", {"QBO_SANDBOX": "true"}, clear=False),
+            pytest.raises(SystemExit),
         ):
-            with pytest.raises(SystemExit):
-                Config(profile="prod")
+            Config(profile="prod")
 
     def test_qbo_sandbox_env_false_ignored(self, tmp_path):
         config_file = tmp_path / "config.json"

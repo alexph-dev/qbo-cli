@@ -103,9 +103,11 @@ class TestErrorFormatting:
             }
         }
 
-        with patch("qbo_cli.client.requests.request", return_value=mock_resp):
-            with pytest.raises(SystemExit):
-                client.request("GET", "customer/999")
+        with (
+            patch("qbo_cli.client.requests.request", return_value=mock_resp),
+            pytest.raises(SystemExit),
+        ):
+            client.request("GET", "customer/999")
 
         captured = capsys.readouterr().err
         assert "Object Not Found" in captured

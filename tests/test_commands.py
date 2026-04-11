@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import sys
-from contextlib import ExitStack
+from contextlib import ExitStack, suppress
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -299,10 +299,8 @@ class TestReportArgparse:
         """Verify --list flag is parsed by argparse."""
         with patch("qbo_cli.cli.cmd_report") as mock_cmd, patch.object(sys, "argv", ["qbo", "report", "--list"]):
             mock_cmd.return_value = None
-            try:
+            with suppress(SystemExit):
                 main()
-            except SystemExit:
-                pass
             if mock_cmd.called:
                 args = mock_cmd.call_args[0][0]
                 assert args.list_reports is True
@@ -314,10 +312,8 @@ class TestReportArgparse:
             patch.object(sys, "argv", ["qbo", "report", "PnL", "-o", "json"]),
         ):
             mock_cmd.return_value = None
-            try:
+            with suppress(SystemExit):
                 main()
-            except SystemExit:
-                pass
             if mock_cmd.called:
                 args = mock_cmd.call_args[0][0]
                 assert args.report_type == "PnL"
@@ -800,9 +796,9 @@ class TestCmdAuthSetup:
             patch("qbo_cli.auth.CONFIG_PATH", config_file),
             patch("qbo_cli.auth.QBO_DIR", tmp_path),
             patch("builtins.input", side_effect=["", "", ""]),
+            pytest.raises(SystemExit),
         ):
-            with pytest.raises(SystemExit):
-                cmd_auth_setup(args, fake_config, fake_token_mgr)
+            cmd_auth_setup(args, fake_config, fake_token_mgr)
 
     def test_setup_migrates_flat_config(self, tmp_path, fake_config, fake_token_mgr, capsys):
         from qbo_cli.auth import cmd_auth_setup
