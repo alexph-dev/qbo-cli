@@ -46,7 +46,7 @@ qbo_cli/
   qbo_query.py        # _qbo_escape — query escaping (NOT formatting)         LEAF
   report_registry.py  # REPORT_REGISTRY, _REPORT_ALIAS_MAP,
                       # _resolve_report_name, _format_report_list             LEAF
-  output.py           # output, output_text, output_tsv, _output_kv, _truncate,
+  output.py           # output, output_text, output_tsv, _output_entity, _truncate,
                       # _normalize_output_data, _has_nested_dict_list,
                       # _unwrap_entity_dict, _first_list_value,
                       # _pad_line, _format_amount, _format_date_range,
@@ -67,7 +67,7 @@ qbo_cli/
                       # _list_all_accounts*, _resolve_customer, _compute_subtotal,
                       # _build_report_lines,
                       # _build_txns_report, _collapse_tree,
-                      # _build_by_customer_report, _txn_to_dict, cmd_gl_report
+                      # _build_by_customer_report, _serialize_txn, cmd_gl_report
                       # (depends: client, output, cli_options, qbo_query, errors)
   commands.py         # cmd_query, cmd_search, cmd_get, cmd_create, cmd_update,
                       # cmd_delete, cmd_void, cmd_report, cmd_raw
@@ -122,9 +122,9 @@ From `rg 'from qbo_cli\.cli import'`:
 - `tests/conftest.py`: `Config, QBOClient, TokenManager`
 - `tests/test_client.py`: `QBOClient`
 - `tests/test_config.py`: `Config, DEFAULT_REDIRECT`
-- `tests/test_formatting.py`: `_output_kv, output, output_text, output_tsv`
+- `tests/test_formatting.py`: `_output_entity, output, output_text, output_tsv`
 - `tests/test_parsing.py`: `GLSection, GLTransaction, _parse_gl_rows, _parse_txn_from_row, _build_section_index, _find_gl_section, _extract_dates_from_gl`
-- `tests/test_pure.py`: `GLSection, GLTransaction, _build_section_index, _collapse_tree, _find_gl_section, _format_amount, _format_date_range, _is_month_end, _is_month_start, _pad_line, _qbo_escape, _truncate, _txn_to_dict`
+- `tests/test_pure.py`: `GLSection, GLTransaction, _build_section_index, _collapse_tree, _find_gl_section, _format_amount, _format_date_range, _is_month_end, _is_month_start, _pad_line, _qbo_escape, _truncate, _serialize_txn`
 - `tests/test_commands.py`: `Config, QBOClient, TokenManager, cmd_create, cmd_delete, cmd_get, cmd_gl_report, cmd_query, cmd_raw, cmd_report, cmd_search, cmd_update, cmd_void, cmd_auth_setup` + `@patch` of `qbo_cli.cli.QBOClient`, `qbo_cli.cli.cmd_*`, `qbo_cli.cli.CONFIG_PATH`, `qbo_cli.cli.QBO_DIR`, GL helpers
 
 All patch targets must be updated to point at the new module path where the function resolves its dependencies.
