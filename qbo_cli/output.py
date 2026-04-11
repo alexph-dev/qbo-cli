@@ -96,12 +96,8 @@ def output_text(data) -> None:
     """Human-readable table output."""
     data = _normalize_output_data(data, unwrap_entity=True)
     if isinstance(data, dict):
-        if not _has_nested_dict_list(data):
-            _output_kv(data)
-            return
-        data = _normalize_output_data(data, extract_list=True)
-        if isinstance(data, dict):
-            _output_kv(data)
+        data = _resolve_dict_payload(data)
+        if data is None:
             return
 
     if not data:
@@ -111,12 +107,29 @@ def output_text(data) -> None:
         _print_json_fallback(data)
         return
 
-    keys = _select_table_columns(data[0])
-    widths = _compute_column_widths(data, keys)
+    _render_table(data)
+
+
+def _resolve_dict_payload(data: dict):
+    """Render or unwrap a dict payload; return None when fully consumed, else a list."""
+    if not _has_nested_dict_list(data):
+        _output_kv(data)
+        return None
+    inner = _normalize_output_data(data, extract_list=True)
+    if isinstance(inner, dict):
+        _output_kv(inner)
+        return None
+    return inner
+
+
+def _render_table(rows: list) -> None:
+    """Render a non-empty list of dicts as a fixed-width table with row count."""
+    keys = _select_table_columns(rows[0])
+    widths = _compute_column_widths(rows, keys)
     _render_table_header(keys, widths)
-    for row in data:
+    for row in rows:
         _render_table_row(row, keys, widths)
-    print(f"\n({len(data)} rows)")
+    print(f"\n({len(rows)} rows)")
 
 
 def _output_kv(data: dict, indent: int = 0) -> None:
