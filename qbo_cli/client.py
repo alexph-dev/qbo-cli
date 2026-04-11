@@ -18,6 +18,27 @@ from qbo_cli.constants import (
 )
 from qbo_cli.errors import die, err_print
 
+_PAGINATION_HINT = re.compile(r"\b(?:MAXRESULTS|STARTPOSITION)\b", re.IGNORECASE)
+
+
+def _extract_entities(data: dict) -> list:
+    """Pull the first list value out of a QBO QueryResponse payload."""
+    for val in data.get("QueryResponse", {}).values():
+        if isinstance(val, list):
+            return val
+    return []
+
+
+def _extract_error_detail(resp: requests.Response) -> str:
+    """Return a human-readable error message from a failed QBO response."""
+    try:
+        errors = resp.json().get("Fault", {}).get("Error", [])
+    except (ValueError, AttributeError):
+        return resp.text[:500]
+    if not errors:
+        return resp.text[:500]
+    return "; ".join(f"{e.get('Message', '')} — {e.get('Detail', '')}" for e in errors)
+
 
 class QBOClient:
     """QuickBooks Online API client with auto-refresh and retry."""
@@ -41,6 +62,32 @@ class QBOClient:
         base = SANDBOX_BASE if self.config.sandbox else PROD_BASE
         return f"{base}/{realm}"
 
+    def _http_call(self, method: str, url: str, token: str, params: dict, json_body: dict | None) -> requests.Response:
+        """Single HTTP call to QBO; converts network failures into die()."""
+        try:
+            return requests.request(
+                method,
+                url,
+                headers=self._headers(token),
+                params=params,
+                json=json_body,
+                timeout=60,
+            )
+        except requests.ConnectionError:
+            die("Network error connecting to QBO API. Check your connection.")
+        except requests.Timeout:
+            die("QBO API request timed out (60s). Try again later.")
+
+    def _send_with_refresh(self, method: str, url: str, params: dict, json_body: dict | None) -> requests.Response:
+        """Send request; on 401 force a token refresh and retry once."""
+        token = self.token_mgr.get_valid_token()
+        resp = self._http_call(method, url, token, params, json_body)
+        if resp.status_code != 401:
+            return resp
+        err_print("Got 401, forcing token refresh...")
+        token = self.token_mgr._locked_refresh(self.token_mgr.load())
+        return self._http_call(method, url, token, params, json_body)
+
     def request(
         self,
         method: str,
@@ -50,80 +97,32 @@ class QBOClient:
         raw_response: bool = False,
     ):
         """Make API request with auto-refresh and 401 retry."""
-        token = self.token_mgr.get_valid_token()
+        params = dict(params) if params else {}
+        params.setdefault("minorversion", MINOR_VERSION)
         url = f"{self._base_url()}/{path}"
 
-        # Always include minorversion for consistent API behavior
-        if params is None:
-            params = {}
-        params.setdefault("minorversion", MINOR_VERSION)
-
-        for attempt in range(2):
-            try:
-                resp = requests.request(
-                    method,
-                    url,
-                    headers=self._headers(token),
-                    params=params,
-                    json=json_body,
-                    timeout=60,
-                )
-            except requests.ConnectionError:
-                die("Network error connecting to QBO API. Check your connection.")
-            except requests.Timeout:
-                die("QBO API request timed out (60s). Try again later.")
-
-            if resp.status_code == 401 and attempt == 0:
-                err_print("Got 401, forcing token refresh...")
-                token = self.token_mgr._locked_refresh(self.token_mgr.load())
-                continue
-
-            break
-
+        resp = self._send_with_refresh(method, url, params, json_body)
         if raw_response:
             return resp
-
         if not resp.ok:
-            # Try to extract QBO Fault message for better error reporting
-            error_detail = resp.text[:500]
-            try:
-                error_json = resp.json()
-                fault = error_json.get("Fault", {})
-                errors = fault.get("Error", [])
-                if errors:
-                    error_detail = "; ".join(f"{e.get('Message', '')} — {e.get('Detail', '')}" for e in errors)
-            except (ValueError, AttributeError):
-                pass
-            err_print(f"API error {resp.status_code}: {error_detail}")
+            err_print(f"API error {resp.status_code}: {_extract_error_detail(resp)}")
             sys.exit(1)
-
         return resp.json()
 
     def query(self, sql: str, max_pages: int = DEFAULT_MAX_PAGES) -> list:
         """Run QBO query with auto-pagination."""
-
-        def _extract_entities(data: dict) -> list:
-            qr = data.get("QueryResponse", {})
-            for val in qr.values():
-                if isinstance(val, list):
-                    return val
-            return []
-
-        # If user specifies MAXRESULTS or STARTPOSITION explicitly, honor it and skip auto-pagination
-        if re.search(r"\bMAXRESULTS\b", sql, re.IGNORECASE) or re.search(r"\bSTARTPOSITION\b", sql, re.IGNORECASE):
+        # Honor explicit pagination hints; skip auto-paging.
+        if _PAGINATION_HINT.search(sql):
             data = self.request("GET", "query", params={"query": sql})
             return _extract_entities(data)
 
-        all_results = []
+        all_results: list = []
         start = 1
-
-        for page in range(max_pages):
+        for _ in range(max_pages):
             paginated_sql = f"{sql} STARTPOSITION {start} MAXRESULTS {MAX_RESULTS}"
             data = self.request("GET", "query", params={"query": paginated_sql})
-
             entities = _extract_entities(data)
             all_results.extend(entities)
-
             if len(entities) < MAX_RESULTS:
                 break
             start += MAX_RESULTS
