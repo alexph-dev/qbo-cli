@@ -118,7 +118,6 @@ def output_text(data) -> None:
 def _output_kv(data: dict, indent: int = 0) -> None:
     """Pretty-print a single entity as key-value pairs."""
     prefix = "  " * indent
-    # Find max key length for alignment
     scalar_keys = [k for k, v in data.items() if not isinstance(v, (dict, list))]
     nested_keys = [k for k, v in data.items() if isinstance(v, (dict, list))]
     max_key = max((len(k) for k in scalar_keys), default=10)
@@ -130,7 +129,7 @@ def _output_kv(data: dict, indent: int = 0) -> None:
     for k in nested_keys:
         v = data[k]
         if isinstance(v, dict):
-            # Flatten simple nested dicts inline
+            # Inline small nested dicts so flat entities stay on one screen.
             simple_vals = {sk: sv for sk, sv in v.items() if not isinstance(sv, (dict, list))}
             if simple_vals and len(simple_vals) <= 3:
                 flat = ", ".join(f"{sk}={sv}" for sk, sv in simple_vals.items())
