@@ -522,76 +522,105 @@ def _txn_to_dict(t: GLTransaction) -> dict:
     }
 
 
+def _handle_list_accounts_mode(args, client: "QBOClient", out_mode: str) -> None:
+    """Handle the `--list-accounts` branch of `gl-report`."""
+    if out_mode not in ("text", "json"):
+        die("gl-report --list-accounts supports text or json output only.")
+    if args.account:
+        tree = _discover_account_tree(client, args.account)
+        if out_mode == "json":
+            output(tree, out_mode)
+        else:
+            _print_account_tree(tree)
+        return
+    if out_mode == "json":
+        output(_list_all_accounts_data(client), out_mode)
+    else:
+        _list_all_accounts(client)
+
+
+def _resolve_gl_date_window(args) -> tuple[str, str, bool]:
+    """Return (start_date, end_date, auto_start_flag) for the GL fetch window."""
+    end_date = _parse_date(args.end) if args.end else datetime.now().strftime("%Y-%m-%d")
+    start_date = _parse_date(args.start) if args.start else "2000-01-01"
+    return start_date, end_date, args.start is None
+
+
+def _fetch_gl_data(client: "QBOClient", start_date: str, end_date: str, method: str, cust_id: str | None) -> dict:
+    """Fetch GL report from QBO and bail out if it has no data."""
+    params = {
+        "start_date": start_date,
+        "end_date": end_date,
+        "accounting_method": method,
+    }
+    if cust_id:
+        params["customer"] = cust_id
+    gl_data = client.report("GeneralLedger", params)
+    for opt in gl_data.get("Header", {}).get("Option", []):
+        if opt.get("Name") == "NoReportData" and opt.get("Value") == "true":
+            die("No data found for the specified filters.")
+    return gl_data
+
+
+def _section_tree_to_dict(section_idx: dict[str, GLSection], node: dict) -> dict:
+    """Serialize an account-tree node into a JSON-friendly dict using section_idx."""
+    section = _find_gl_section(section_idx, node["name"], node.get("id", ""))
+    result: dict = {"name": node["name"], "id": node["id"]}
+    if not node["children"]:
+        result["amount"] = section.total_amount if section else 0.0
+        result["count"] = section.total_count if section else 0
+        txns = section.all_transactions if section else []
+        if txns:
+            result["transactions"] = [_txn_to_dict(t) for t in sorted(txns, key=lambda x: x.date)]
+        return result
+
+    result["direct_amount"] = section.direct_amount if section else 0.0
+    result["direct_count"] = section.direct_count if section else 0
+    amt, cnt = _compute_subtotal(section_idx, node)
+    result["total_amount"] = amt
+    result["total_count"] = cnt
+    result["children"] = [_section_tree_to_dict(section_idx, c) for c in node["children"]]
+    if section and section.transactions:
+        result["transactions"] = [_txn_to_dict(t) for t in sorted(section.transactions, key=lambda x: x.date)]
+    return result
+
+
 def cmd_gl_report(args, config, token_mgr):
     """Generate a hierarchical General Ledger report."""
     client = _make_client(config, token_mgr)
     out_mode = _resolve_fmt(args)
 
-    # --list-accounts mode
     if args.list_accounts:
-        if out_mode not in ("text", "json"):
-            die("gl-report --list-accounts supports text or json output only.")
-        if args.account:
-            tree = _discover_account_tree(client, args.account)
-            if out_mode == "json":
-                output(tree, out_mode)
-            else:
-                _print_account_tree(tree)
-        else:
-            if out_mode == "json":
-                output(_list_all_accounts_data(client), out_mode)
-            else:
-                _list_all_accounts(client)
+        _handle_list_accounts_mode(args, client, out_mode)
         return
 
-    # Resolve customer (optional)
-    cust_id, cust_name = None, None
+    cust_id, cust_name = (None, None)
     if args.customer:
         cust_id, cust_name = _resolve_customer(client, args.customer)
 
-    # Resolve dates
-    end_date = _parse_date(args.end) if args.end else datetime.now().strftime("%Y-%m-%d")
-    start_date = _parse_date(args.start) if args.start else "2000-01-01"
-    auto_start = args.start is None
+    start_date, end_date, auto_start = _resolve_gl_date_window(args)
 
-    # Resolve account tree
-    if args.account:
-        account_tree = _discover_account_tree(client, args.account)
-    else:
+    if not args.account:
         die("Account is required. Use -a/--account (ID or name). Use --list-accounts to explore.")
+    account_tree = _discover_account_tree(client, args.account)
 
-    # Fetch GL
-    params = {
-        "start_date": start_date,
-        "end_date": end_date,
-        "accounting_method": args.method,
-    }
-    if cust_id:
-        params["customer"] = cust_id
-    gl_data = client.report("GeneralLedger", params)
-
-    # Check for no data
-    for opt in gl_data.get("Header", {}).get("Option", []):
-        if opt.get("Name") == "NoReportData" and opt.get("Value") == "true":
-            die("No data found for the specified filters.")
+    gl_data = _fetch_gl_data(client, start_date, end_date, args.method, cust_id)
 
     gl_sections = _parse_gl_rows(gl_data.get("Rows", {}))
     section_idx = _build_section_index(gl_sections)
 
-    # Collapse tree if --no-sub
     if args.no_sub:
         account_tree = _collapse_tree(account_tree)
 
-    # Auto-detect start date
     display_start = start_date
     if auto_start:
         actual_first, _ = _extract_dates_from_gl(gl_data)
         if actual_first:
             display_start = actual_first
 
-    # Output
     if out_mode == "tsv":
         die("gl-report does not support tsv output. Use text, json, txns, or expanded.")
+
     title = f"General Ledger Report - {cust_name}" if cust_name else "General Ledger Report"
     date_range = _format_date_range(display_start, end_date)
     currency = args.currency
@@ -601,48 +630,26 @@ def cmd_gl_report(args, config, token_mgr):
         err_print("Warning: --by-customer is only supported with text/expanded output. Ignoring -g flag.")
 
     if out_mode == "json":
-
-        def tree_to_dict(node):
-            section = _find_gl_section(section_idx, node["name"], node.get("id", ""))
-            result = {"name": node["name"], "id": node["id"]}
-            if not node["children"]:
-                result["amount"] = section.total_amount if section else 0.0
-                result["count"] = section.total_count if section else 0
-                txns = section.all_transactions if section else []
-                if txns:
-                    result["transactions"] = [_txn_to_dict(t) for t in sorted(txns, key=lambda x: x.date)]
-            else:
-                result["direct_amount"] = section.direct_amount if section else 0.0
-                result["direct_count"] = section.direct_count if section else 0
-                amt, cnt = _compute_subtotal(section_idx, node)
-                result["total_amount"] = amt
-                result["total_count"] = cnt
-                result["children"] = [tree_to_dict(c) for c in node["children"]]
-                if section and section.transactions:
-                    result["transactions"] = [
-                        _txn_to_dict(t) for t in sorted(section.transactions, key=lambda x: x.date)
-                    ]
-            return result
-
-        report_data = {
+        report_data: dict = {
             "start_date": display_start,
             "end_date": end_date,
             "method": args.method,
-            "account": tree_to_dict(account_tree),
+            "account": _section_tree_to_dict(section_idx, account_tree),
             "total": total_amt,
         }
         if cust_name:
             report_data["customer"] = cust_name
             report_data["customer_id"] = cust_id
-
         output(report_data, out_mode)
+        return
 
-    elif out_mode == "txns":
+    if out_mode == "txns":
         lines = [title, date_range, ""]
         lines.extend(_build_txns_report(section_idx, account_tree, currency))
         print("\n".join(lines))
+        return
 
-    elif args.by_customer:
+    if args.by_customer:
         lines = [title, date_range, ""]
         lines.extend(
             _build_by_customer_report(
@@ -654,12 +661,11 @@ def cmd_gl_report(args, config, token_mgr):
             )
         )
         print("\n".join(lines))
+        return
 
-    else:
-        # text or expanded
-        expanded = out_mode == "expanded"
-        lines = [title, date_range, ""]
-        _build_report_lines(section_idx, account_tree, currency, indent=0, lines=lines, expanded=expanded)
-        lines.append("")
-        lines.append(_pad_line("TOTAL", _format_amount(total_amt, currency)))
-        print("\n".join(lines))
+    expanded = out_mode == "expanded"
+    lines = [title, date_range, ""]
+    _build_report_lines(section_idx, account_tree, currency, indent=0, lines=lines, expanded=expanded)
+    lines.append("")
+    lines.append(_pad_line("TOTAL", _format_amount(total_amt, currency)))
+    print("\n".join(lines))
