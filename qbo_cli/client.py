@@ -47,7 +47,7 @@ class QBOClient:
         self.config = config
         self.token_mgr = token_mgr
 
-    def _headers(self, token: str) -> dict:
+    def _auth_headers(self, token: str) -> dict:
         return {
             "Authorization": f"Bearer {token}",
             "Accept": "application/json",
@@ -68,7 +68,7 @@ class QBOClient:
             return requests.request(
                 method,
                 url,
-                headers=self._headers(token),
+                headers=self._auth_headers(token),
                 params=params,
                 json=json_body,
                 timeout=60,
