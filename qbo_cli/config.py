@@ -43,13 +43,13 @@ class Config:
                 err_print("Warning: ~/.qbo/config.json is not valid JSON, ignoring.")
                 raw = {}
 
-            if "client_id" in raw:
+            if "client_id" not in raw:
+                file_cfg = raw.get(self.profile, {})
+            else:
                 err_print(
                     "Warning: ~/.qbo/config.json uses legacy flat format.\n"
                     "  Run 'qbo auth setup' to migrate to profiled format."
                 )
-            else:
-                file_cfg = raw.get(self.profile, {})
 
         self.client_id = os.environ.get("QBO_CLIENT_ID", file_cfg.get("client_id", ""))
         self.client_secret = os.environ.get("QBO_CLIENT_SECRET", file_cfg.get("client_secret", ""))
