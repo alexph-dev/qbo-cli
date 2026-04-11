@@ -36,7 +36,9 @@ class TestCmdQuery:
     def test_query_forwards_sql_and_max_pages(self, fake_config, fake_token_mgr):
         """Verify cmd_query passes SQL and max_pages to client.query."""
         client = QBOClient(fake_config, fake_token_mgr)
-        client.request = MagicMock(return_value={"QueryResponse": {"Customer": [{"Id": "1", "DisplayName": "Acme"}]}})
+        client.request = MagicMock(  # type: ignore[method-assign]
+            return_value={"QueryResponse": {"Customer": [{"Id": "1", "DisplayName": "Acme"}]}}
+        )
         args = make_args(command="query", sql="SELECT Id FROM Customer", output=None, format="text", max_pages=50)
 
         with patch("qbo_cli.cli_options.QBOClient", return_value=client):
@@ -49,7 +51,9 @@ class TestCmdQuery:
 
     def test_query_json_output(self, fake_config, fake_token_mgr, capsys):
         client = QBOClient(fake_config, fake_token_mgr)
-        client.request = MagicMock(return_value={"QueryResponse": {"Customer": [{"Id": "1", "DisplayName": "Acme"}]}})
+        client.request = MagicMock(  # type: ignore[method-assign]
+            return_value={"QueryResponse": {"Customer": [{"Id": "1", "DisplayName": "Acme"}]}}
+        )
         args = make_args(command="query", sql="SELECT * FROM Customer", output="json", format="text")
 
         with patch("qbo_cli.cli_options.QBOClient", return_value=client):
@@ -61,7 +65,9 @@ class TestCmdQuery:
 
     def test_query_text_output(self, fake_config, fake_token_mgr, capsys):
         client = QBOClient(fake_config, fake_token_mgr)
-        client.request = MagicMock(return_value={"QueryResponse": {"Customer": [{"Id": "1", "DisplayName": "Acme"}]}})
+        client.request = MagicMock(  # type: ignore[method-assign]
+            return_value={"QueryResponse": {"Customer": [{"Id": "1", "DisplayName": "Acme"}]}}
+        )
         args = make_args(command="query", sql="SELECT * FROM Customer", output=None, format="text")
 
         with patch("qbo_cli.cli_options.QBOClient", return_value=client):
@@ -78,7 +84,7 @@ class TestCmdQuery:
 class TestCmdSearch:
     def test_search_filters_nested_json_case_insensitive(self, fake_config, fake_token_mgr, capsys):
         client = QBOClient(fake_config, fake_token_mgr)
-        client.query = MagicMock(
+        client.query = MagicMock(  # type: ignore[method-assign]
             return_value=[
                 {"Id": "1", "PrivateNote": "Owner Memo", "Line": [{"Description": "Move-in fee"}]},
                 {"Id": "2", "PrivateNote": "Misc", "Line": [{"Description": "Monthly Service"}]},
@@ -103,7 +109,7 @@ class TestCmdSearch:
 
     def test_search_case_sensitive_flag(self, fake_config, fake_token_mgr, capsys):
         client = QBOClient(fake_config, fake_token_mgr)
-        client.query = MagicMock(return_value=[{"Id": "1", "PrivateNote": "Owner Memo"}])
+        client.query = MagicMock(return_value=[{"Id": "1", "PrivateNote": "Owner Memo"}])  # type: ignore[method-assign]
         args = make_args(
             command="search",
             sql="SELECT * FROM Invoice",
@@ -127,7 +133,9 @@ class TestCmdSearch:
 class TestCmdReport:
     def test_report_basic(self, fake_config, fake_token_mgr, capsys):
         client = QBOClient(fake_config, fake_token_mgr)
-        client.request = MagicMock(return_value={"Header": {"ReportName": "ProfitAndLoss"}, "Rows": {}})
+        client.request = MagicMock(  # type: ignore[method-assign]
+            return_value={"Header": {"ReportName": "ProfitAndLoss"}, "Rows": {}}
+        )
         args = make_args(
             command="report",
             report_type="ProfitAndLoss",
@@ -150,7 +158,7 @@ class TestCmdReport:
     def test_report_forwards_params(self, fake_config, fake_token_mgr, capsys):
         """Verify date_macro and extra key=value params are forwarded to the API."""
         client = QBOClient(fake_config, fake_token_mgr)
-        client.request = MagicMock(return_value={"Header": {}, "Rows": {}})
+        client.request = MagicMock(return_value={"Header": {}, "Rows": {}})  # type: ignore[method-assign]
         args = make_args(
             command="report",
             report_type="BalanceSheet",
@@ -254,7 +262,9 @@ class TestCmdReportList:
     def test_alias_resolves_before_api_call(self, fake_config, fake_token_mgr, capsys):
         """Verify alias is resolved to canonical name before calling client.report."""
         client = QBOClient(fake_config, fake_token_mgr)
-        client.request = MagicMock(return_value={"Header": {"ReportName": "GeneralLedger"}, "Rows": {}})
+        client.request = MagicMock(  # type: ignore[method-assign]
+            return_value={"Header": {"ReportName": "GeneralLedger"}, "Rows": {}}
+        )
         args = make_args(
             command="report",
             report_type="GL",
@@ -532,7 +542,9 @@ class TestCmdCreateUpdate:
     def test_cmd_create_calls_post_with_entity_and_body(self, fake_config, fake_token_mgr):
         """Verify create calls client.request(POST, entity, body)."""
         client = QBOClient(fake_config, fake_token_mgr)
-        client.request = MagicMock(return_value={"Customer": {"Id": "99", "DisplayName": "New Corp"}})
+        client.request = MagicMock(  # type: ignore[method-assign]
+            return_value={"Customer": {"Id": "99", "DisplayName": "New Corp"}}
+        )
         args = make_args(command="create", entity="Customer", output="json", format="text")
 
         body = {"DisplayName": "New Corp"}
@@ -548,7 +560,9 @@ class TestCmdCreateUpdate:
     def test_cmd_update_calls_post_with_entity_and_body(self, fake_config, fake_token_mgr):
         """Verify update calls client.request(POST, entity, body)."""
         client = QBOClient(fake_config, fake_token_mgr)
-        client.request = MagicMock(return_value={"Customer": {"Id": "1", "DisplayName": "Updated Corp"}})
+        client.request = MagicMock(  # type: ignore[method-assign]
+            return_value={"Customer": {"Id": "1", "DisplayName": "Updated Corp"}}
+        )
         args = make_args(command="update", entity="Customer", output="json", format="text")
 
         body = {"Id": "1", "DisplayName": "Updated Corp", "SyncToken": "0"}
@@ -563,7 +577,9 @@ class TestCmdCreateUpdate:
     def test_cmd_create_json_output(self, fake_config, fake_token_mgr, capsys):
         """Verify create outputs JSON when -o json."""
         client = QBOClient(fake_config, fake_token_mgr)
-        client.request = MagicMock(return_value={"Customer": {"Id": "99", "DisplayName": "New Corp"}})
+        client.request = MagicMock(  # type: ignore[method-assign]
+            return_value={"Customer": {"Id": "99", "DisplayName": "New Corp"}}
+        )
         args = make_args(command="create", entity="Customer", output="json", format="text")
 
         with (
@@ -583,7 +599,7 @@ class TestCmdVoid:
     def test_cmd_void_calls_client_void(self, fake_config, fake_token_mgr, capsys):
         """Verify cmd_void calls client.void with entity and ID, emits result."""
         client = QBOClient(fake_config, fake_token_mgr)
-        client.request = MagicMock(
+        client.request = MagicMock(  # type: ignore[method-assign]
             side_effect=[
                 {"Invoice": {"Id": "55", "SyncToken": "1", "TotalAmt": 100}},
                 {"Invoice": {"Id": "55", "SyncToken": "2", "TotalAmt": 0}},

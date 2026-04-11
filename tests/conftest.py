@@ -53,8 +53,8 @@ def fake_token_mgr(fake_config):
         "refresh_expires_at": 9999999999,
         "realm_id": "1234567890",
     }
-    mgr.get_valid_token = MagicMock(return_value="fake-access-token")
-    mgr.load = MagicMock(return_value=mgr._tokens)
+    mgr.get_valid_token = MagicMock(return_value="fake-access-token")  # type: ignore[method-assign]
+    mgr.load = MagicMock(return_value=mgr._tokens)  # type: ignore[method-assign]
     return mgr
 
 
@@ -62,7 +62,7 @@ def fake_token_mgr(fake_config):
 def mock_client(fake_config, fake_token_mgr):
     """QBOClient with mocked request method."""
     client = QBOClient(fake_config, fake_token_mgr)
-    client.request = MagicMock()
+    client.request = MagicMock()  # type: ignore[method-assign]
     return client
 
 
