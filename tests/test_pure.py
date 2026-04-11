@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from datetime import datetime
+
 import pytest
 
 from qbo_cli.cli import (
@@ -19,8 +21,6 @@ from qbo_cli.cli import (
     _truncate,
     _txn_to_dict,
 )
-from datetime import datetime
-
 
 # ─── _qbo_escape ──────────────────────────────────────────────────────────────
 

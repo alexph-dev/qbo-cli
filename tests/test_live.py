@@ -276,19 +276,21 @@ def test_live_sandbox_void_invoice_lifecycle():
     tax_ref = {"value": tax_codes[0]["Id"]} if tax_codes else {"value": "NON"}
 
     # Create a minimal test invoice in sandbox
-    invoice_body = json.dumps({
-        "CustomerRef": {"value": cust_id},
-        "Line": [
-            {
-                "Amount": 1.00,
-                "DetailType": "SalesItemLineDetail",
-                "SalesItemLineDetail": {
-                    "ItemRef": {"value": "1"},
-                    "TaxCodeRef": tax_ref,
-                },
-            }
-        ],
-    })
+    invoice_body = json.dumps(
+        {
+            "CustomerRef": {"value": cust_id},
+            "Line": [
+                {
+                    "Amount": 1.00,
+                    "DetailType": "SalesItemLineDetail",
+                    "SalesItemLineDetail": {
+                        "ItemRef": {"value": "1"},
+                        "TaxCodeRef": tax_ref,
+                    },
+                }
+            ],
+        }
+    )
     create = subprocess.run(
         ["qbo", "--sandbox", "create", "Invoice", "-o", "json"],
         input=invoice_body,

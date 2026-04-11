@@ -42,6 +42,7 @@ def create_test_customer(name: str = "TestCRUD") -> str:
     """Create a customer in sandbox, return its Id."""
     body = json.dumps({"DisplayName": f"{name}_{_uid()}"})
     data = qbo_json("create", "Customer", stdin=body)
+    assert isinstance(data, dict)
     return data["Customer"]["Id"]
 
 
@@ -101,11 +102,13 @@ def test_create_customer_unicode_displayname():
 def test_create_customer_extra_unknown_fields():
     """Extra fields should be ignored by QBO, not crash the CLI."""
     name = f"ExtraFields_{_uid()}"
-    body = json.dumps({
-        "DisplayName": name,
-        "TotallyFakeField": "should be ignored",
-        "AnotherBogus": 42,
-    })
+    body = json.dumps(
+        {
+            "DisplayName": name,
+            "TotallyFakeField": "should be ignored",
+            "AnotherBogus": 42,
+        }
+    )
     r = qbo("create", "Customer", "-o", "json", stdin=body)
     if r.returncode == 0:
         cid = json.loads(r.stdout)["Customer"]["Id"]
@@ -181,14 +184,18 @@ def test_delete_already_deleted():
     cust_id = cust[0]["Id"]
     tax = qbo_json("query", "SELECT Id FROM TaxCode WHERE Name LIKE '%0%' MAXRESULTS 1")
     tax_ref = {"value": tax[0]["Id"]} if tax else {"value": "NON"}
-    inv_body = json.dumps({
-        "CustomerRef": {"value": cust_id},
-        "Line": [{
-            "Amount": 1.00,
-            "DetailType": "SalesItemLineDetail",
-            "SalesItemLineDetail": {"ItemRef": {"value": "1"}, "TaxCodeRef": tax_ref},
-        }],
-    })
+    inv_body = json.dumps(
+        {
+            "CustomerRef": {"value": cust_id},
+            "Line": [
+                {
+                    "Amount": 1.00,
+                    "DetailType": "SalesItemLineDetail",
+                    "SalesItemLineDetail": {"ItemRef": {"value": "1"}, "TaxCodeRef": tax_ref},
+                }
+            ],
+        }
+    )
     created = qbo_json("create", "Invoice", stdin=inv_body)
     inv_id = created["Invoice"]["Id"]
 
@@ -219,14 +226,18 @@ def test_void_already_voided_invoice():
     tax = qbo_json("query", "SELECT Id FROM TaxCode WHERE Name LIKE '%0%' MAXRESULTS 1")
     tax_ref = {"value": tax[0]["Id"]} if tax else {"value": "NON"}
 
-    inv_body = json.dumps({
-        "CustomerRef": {"value": cust_id},
-        "Line": [{
-            "Amount": 1.00,
-            "DetailType": "SalesItemLineDetail",
-            "SalesItemLineDetail": {"ItemRef": {"value": "1"}, "TaxCodeRef": tax_ref},
-        }],
-    })
+    inv_body = json.dumps(
+        {
+            "CustomerRef": {"value": cust_id},
+            "Line": [
+                {
+                    "Amount": 1.00,
+                    "DetailType": "SalesItemLineDetail",
+                    "SalesItemLineDetail": {"ItemRef": {"value": "1"}, "TaxCodeRef": tax_ref},
+                }
+            ],
+        }
+    )
     created = qbo_json("create", "Invoice", stdin=inv_body)
     inv_id = created["Invoice"]["Id"]
     try:
@@ -302,14 +313,18 @@ def test_invoice_create_void_verify_delete():
     tax = qbo_json("query", "SELECT Id FROM TaxCode WHERE Name LIKE '%0%' MAXRESULTS 1")
     tax_ref = {"value": tax[0]["Id"]} if tax else {"value": "NON"}
 
-    inv_body = json.dumps({
-        "CustomerRef": {"value": cust_id},
-        "Line": [{
-            "Amount": 50.00,
-            "DetailType": "SalesItemLineDetail",
-            "SalesItemLineDetail": {"ItemRef": {"value": "1"}, "TaxCodeRef": tax_ref},
-        }],
-    })
+    inv_body = json.dumps(
+        {
+            "CustomerRef": {"value": cust_id},
+            "Line": [
+                {
+                    "Amount": 50.00,
+                    "DetailType": "SalesItemLineDetail",
+                    "SalesItemLineDetail": {"ItemRef": {"value": "1"}, "TaxCodeRef": tax_ref},
+                }
+            ],
+        }
+    )
     created = qbo_json("create", "Invoice", stdin=inv_body)
     inv_id = created["Invoice"]["Id"]
     try:

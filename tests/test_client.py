@@ -2,12 +2,11 @@
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock, call, patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
 from qbo_cli.cli import QBOClient
-
 
 # ─── Query pagination ─────────────────────────────────────────────────────────
 
@@ -15,9 +14,7 @@ from qbo_cli.cli import QBOClient
 class TestQueryPagination:
     def test_single_page(self, mock_client):
         """Less than MAX_RESULTS → no second page."""
-        mock_client.request.return_value = {
-            "QueryResponse": {"Customer": [{"Id": str(i)} for i in range(5)]}
-        }
+        mock_client.request.return_value = {"QueryResponse": {"Customer": [{"Id": str(i)} for i in range(5)]}}
         results = mock_client.query("SELECT * FROM Customer")
         assert len(results) == 5
         assert mock_client.request.call_count == 1
@@ -38,9 +35,7 @@ class TestQueryPagination:
 
     def test_user_maxresults_bypass(self, mock_client):
         """User specifies MAXRESULTS → skip auto-pagination, forward exact SQL."""
-        mock_client.request.return_value = {
-            "QueryResponse": {"Customer": [{"Id": "1"}]}
-        }
+        mock_client.request.return_value = {"QueryResponse": {"Customer": [{"Id": "1"}]}}
         results = mock_client.query("SELECT * FROM Customer MAXRESULTS 1")
         assert len(results) == 1
         # Verify exact SQL was forwarded without modification
@@ -50,9 +45,7 @@ class TestQueryPagination:
 
     def test_user_startposition_bypass(self, mock_client):
         """User specifies STARTPOSITION → skip auto-pagination."""
-        mock_client.request.return_value = {
-            "QueryResponse": {"Customer": [{"Id": "1"}, {"Id": "2"}]}
-        }
+        mock_client.request.return_value = {"QueryResponse": {"Customer": [{"Id": "1"}, {"Id": "2"}]}}
         results = mock_client.query("SELECT * FROM Customer STARTPOSITION 5")
         assert len(results) == 2
         assert mock_client.request.call_count == 1
@@ -141,7 +134,7 @@ class TestDelete:
             # Second call: POST to delete
             {"Customer": {"Id": "42", "status": "Deleted"}},
         ]
-        result = mock_client.delete("Customer", "42")
+        mock_client.delete("Customer", "42")
 
         assert mock_client.request.call_count == 2
         # First call: GET

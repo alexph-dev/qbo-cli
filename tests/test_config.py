@@ -8,7 +8,7 @@ from unittest.mock import patch
 
 import pytest
 
-from qbo_cli.cli import Config, DEFAULT_REDIRECT
+from qbo_cli.cli import DEFAULT_REDIRECT, Config
 
 
 def _clear_qbo_env():
@@ -30,10 +30,14 @@ def _restore_env(old: dict):
 class TestConfigProfileLoading:
     def test_loads_prod_profile(self, tmp_path):
         config_file = tmp_path / "config.json"
-        config_file.write_text(json.dumps({
-            "prod": {"client_id": "prod-id", "client_secret": "prod-secret"},
-            "dev": {"client_id": "dev-id", "client_secret": "dev-secret"},
-        }))
+        config_file.write_text(
+            json.dumps(
+                {
+                    "prod": {"client_id": "prod-id", "client_secret": "prod-secret"},
+                    "dev": {"client_id": "dev-id", "client_secret": "dev-secret"},
+                }
+            )
+        )
         old = _clear_qbo_env()
         try:
             with patch("qbo_cli.cli.CONFIG_PATH", config_file):
@@ -45,10 +49,14 @@ class TestConfigProfileLoading:
 
     def test_loads_dev_profile(self, tmp_path):
         config_file = tmp_path / "config.json"
-        config_file.write_text(json.dumps({
-            "prod": {"client_id": "prod-id", "client_secret": "prod-secret"},
-            "dev": {"client_id": "dev-id", "client_secret": "dev-secret"},
-        }))
+        config_file.write_text(
+            json.dumps(
+                {
+                    "prod": {"client_id": "prod-id", "client_secret": "prod-secret"},
+                    "dev": {"client_id": "dev-id", "client_secret": "dev-secret"},
+                }
+            )
+        )
         old = _clear_qbo_env()
         try:
             with patch("qbo_cli.cli.CONFIG_PATH", config_file):
@@ -60,9 +68,13 @@ class TestConfigProfileLoading:
 
     def test_dev_sandbox_true(self, tmp_path):
         config_file = tmp_path / "config.json"
-        config_file.write_text(json.dumps({
-            "dev": {"client_id": "x", "client_secret": "y", "sandbox": True},
-        }))
+        config_file.write_text(
+            json.dumps(
+                {
+                    "dev": {"client_id": "x", "client_secret": "y", "sandbox": True},
+                }
+            )
+        )
         old = _clear_qbo_env()
         try:
             with patch("qbo_cli.cli.CONFIG_PATH", config_file):
@@ -73,9 +85,13 @@ class TestConfigProfileLoading:
 
     def test_sandbox_defaults_false(self, tmp_path):
         config_file = tmp_path / "config.json"
-        config_file.write_text(json.dumps({
-            "prod": {"client_id": "x", "client_secret": "y"},
-        }))
+        config_file.write_text(
+            json.dumps(
+                {
+                    "prod": {"client_id": "x", "client_secret": "y"},
+                }
+            )
+        )
         old = _clear_qbo_env()
         try:
             with patch("qbo_cli.cli.CONFIG_PATH", config_file):
@@ -86,9 +102,13 @@ class TestConfigProfileLoading:
 
     def test_sandbox_string_coercion(self, tmp_path):
         config_file = tmp_path / "config.json"
-        config_file.write_text(json.dumps({
-            "dev": {"client_id": "x", "client_secret": "y", "sandbox": "true"},
-        }))
+        config_file.write_text(
+            json.dumps(
+                {
+                    "dev": {"client_id": "x", "client_secret": "y", "sandbox": "true"},
+                }
+            )
+        )
         old = _clear_qbo_env()
         try:
             with patch("qbo_cli.cli.CONFIG_PATH", config_file):
@@ -104,9 +124,13 @@ class TestConfigProfileLoading:
 class TestConfigEnvOverride:
     def test_env_vars_override_profile(self, tmp_path):
         config_file = tmp_path / "config.json"
-        config_file.write_text(json.dumps({
-            "prod": {"client_id": "file-id", "client_secret": "file-secret", "realm_id": "file-realm"},
-        }))
+        config_file.write_text(
+            json.dumps(
+                {
+                    "prod": {"client_id": "file-id", "client_secret": "file-secret", "realm_id": "file-realm"},
+                }
+            )
+        )
         env = {
             "QBO_CLIENT_ID": "env-id",
             "QBO_CLIENT_SECRET": "env-secret",
@@ -124,13 +148,17 @@ class TestConfigEnvOverride:
 
     def test_file_values_when_no_env(self, tmp_path):
         config_file = tmp_path / "config.json"
-        config_file.write_text(json.dumps({
-            "prod": {
-                "client_id": "file-id",
-                "client_secret": "file-secret",
-                "redirect_uri": "http://custom:9999/cb",
-            },
-        }))
+        config_file.write_text(
+            json.dumps(
+                {
+                    "prod": {
+                        "client_id": "file-id",
+                        "client_secret": "file-secret",
+                        "redirect_uri": "http://custom:9999/cb",
+                    },
+                }
+            )
+        )
         old = _clear_qbo_env()
         try:
             with patch("qbo_cli.cli.CONFIG_PATH", config_file):
@@ -176,10 +204,14 @@ class TestConfigMissingFile:
 class TestConfigLegacyFlat:
     def test_flat_config_warns_and_falls_back(self, tmp_path, capsys):
         config_file = tmp_path / "config.json"
-        config_file.write_text(json.dumps({
-            "client_id": "old-id",
-            "client_secret": "old-secret",
-        }))
+        config_file.write_text(
+            json.dumps(
+                {
+                    "client_id": "old-id",
+                    "client_secret": "old-secret",
+                }
+            )
+        )
         old = _clear_qbo_env()
         try:
             with patch("qbo_cli.cli.CONFIG_PATH", config_file):
@@ -199,10 +231,14 @@ class TestConfigMissingProfile:
     def test_missing_profile_falls_back_to_empty(self, tmp_path):
         """Unknown profile gets empty config (env vars can still override)."""
         config_file = tmp_path / "config.json"
-        config_file.write_text(json.dumps({
-            "prod": {"client_id": "x"},
-            "dev": {"client_id": "y"},
-        }))
+        config_file.write_text(
+            json.dumps(
+                {
+                    "prod": {"client_id": "x"},
+                    "dev": {"client_id": "y"},
+                }
+            )
+        )
         old = _clear_qbo_env()
         try:
             with patch("qbo_cli.cli.CONFIG_PATH", config_file):
@@ -218,8 +254,10 @@ class TestConfigMissingProfile:
         config_file.write_text(json.dumps({"prod": {"client_id": "x"}}))
         old = _clear_qbo_env()
         try:
-            with patch("qbo_cli.cli.CONFIG_PATH", config_file), \
-                 patch.dict("os.environ", {"QBO_CLIENT_ID": "env-id", "QBO_CLIENT_SECRET": "env-secret"}):
+            with (
+                patch("qbo_cli.cli.CONFIG_PATH", config_file),
+                patch.dict("os.environ", {"QBO_CLIENT_ID": "env-id", "QBO_CLIENT_SECRET": "env-secret"}),
+            ):
                 cfg = Config(profile="staging")
         finally:
             _restore_env(old)
@@ -298,8 +336,10 @@ class TestQboSandboxEnvRejected:
     def test_qbo_sandbox_env_true_dies(self, tmp_path):
         config_file = tmp_path / "config.json"
         config_file.write_text(json.dumps({"prod": {}}))
-        with patch("qbo_cli.cli.CONFIG_PATH", config_file), \
-             patch.dict("os.environ", {"QBO_SANDBOX": "true"}, clear=False):
+        with (
+            patch("qbo_cli.cli.CONFIG_PATH", config_file),
+            patch.dict("os.environ", {"QBO_SANDBOX": "true"}, clear=False),
+        ):
             with pytest.raises(SystemExit):
                 Config(profile="prod")
 
@@ -308,8 +348,10 @@ class TestQboSandboxEnvRejected:
         config_file.write_text(json.dumps({"prod": {"client_id": "x"}}))
         old = _clear_qbo_env()
         try:
-            with patch("qbo_cli.cli.CONFIG_PATH", config_file), \
-                 patch.dict("os.environ", {"QBO_SANDBOX": "false"}, clear=False):
+            with (
+                patch("qbo_cli.cli.CONFIG_PATH", config_file),
+                patch.dict("os.environ", {"QBO_SANDBOX": "false"}, clear=False),
+            ):
                 cfg = Config(profile="prod")
         finally:
             _restore_env(old)

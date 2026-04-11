@@ -6,7 +6,6 @@ import json
 
 from qbo_cli.cli import _output_kv, output, output_text, output_tsv
 
-
 # ─── output_text ──────────────────────────────────────────────────────────────
 
 

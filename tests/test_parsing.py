@@ -9,11 +9,9 @@ from qbo_cli.cli import (
     _build_section_index,
     _compute_subtotal,
     _extract_dates_from_gl,
-    _find_gl_section,
     _parse_gl_rows,
     _parse_txn_from_row,
 )
-
 
 # ─── _parse_txn_from_row ─────────────────────────────────────────────────────
 
