@@ -191,9 +191,23 @@ def _build_token_envelope(data: dict, *, realm_id: str, created_at: float) -> di
 def cmd_auth_init(args, config, token_mgr):
     """Interactive OAuth authorization flow."""
     config.validate()
-
     oauth_state = os.urandom(16).hex()
-    auth_params = urlencode(
+    auth_url = _build_auth_url(config, oauth_state)
+
+    if args.manual:
+        code, realm_id = _read_manual_callback(auth_url, oauth_state)
+    else:
+        code, realm_id = _run_callback_server(auth_url, config, args.port, oauth_state)
+
+    tokens = token_mgr.exchange_code(code, realm_id)
+    err_print(f"✓ Authorized. Realm: {realm_id}")
+    err_print(f"  Access token expires: {time.ctime(tokens['expires_at'])}")
+    err_print(f"  Refresh token expires: {time.ctime(tokens['refresh_expires_at'])}")
+
+
+def _build_auth_url(config: Config, oauth_state: str) -> str:
+    """Construct the Intuit authorization URL with the given CSRF state."""
+    params = urlencode(
         {
             "client_id": config.client_id,
             "scope": SCOPE,
@@ -202,27 +216,22 @@ def cmd_auth_init(args, config, token_mgr):
             "state": oauth_state,
         }
     )
-    auth_url = f"{AUTH_URL}?{auth_params}"
+    return f"{AUTH_URL}?{params}"
 
-    if args.manual:
-        print(f"Open this URL in a browser:\n\n{auth_url}\n", file=sys.stderr)
-        print("After authorizing, paste the full redirect URL here:", file=sys.stderr)
-        redirect_url = input().strip()
-        parsed = parse_qs(urlparse(redirect_url).query)
-        try:
-            code = parsed["code"][0]
-            realm_id = parsed["realmId"][0]
-        except (KeyError, IndexError):
-            die("Could not parse code and realmId from the redirect URL.")
-        if parsed.get("state", [None])[0] != oauth_state:
-            die("OAuth state mismatch — possible CSRF. Try again.")
-    else:
-        code, realm_id = _run_callback_server(auth_url, config, args.port, oauth_state)
 
-    tokens = token_mgr.exchange_code(code, realm_id)
-    err_print(f"✓ Authorized. Realm: {realm_id}")
-    err_print(f"  Access token expires: {time.ctime(tokens['expires_at'])}")
-    err_print(f"  Refresh token expires: {time.ctime(tokens['refresh_expires_at'])}")
+def _read_manual_callback(auth_url: str, expected_state: str) -> tuple:
+    """Print auth URL, read pasted redirect URL from stdin, validate and parse it."""
+    print(f"Open this URL in a browser:\n\n{auth_url}\n", file=sys.stderr)
+    print("After authorizing, paste the full redirect URL here:", file=sys.stderr)
+    parsed = parse_qs(urlparse(input().strip()).query)
+    try:
+        code = parsed["code"][0]
+        realm_id = parsed["realmId"][0]
+    except (KeyError, IndexError):
+        die("Could not parse code and realmId from the redirect URL.")
+    if parsed.get("state", [None])[0] != expected_state:
+        die("OAuth state mismatch — possible CSRF. Try again.")
+    return code, realm_id
 
 
 def _run_callback_server(auth_url: str, config: Config, port: int, expected_state: str) -> tuple:
@@ -270,11 +279,16 @@ def _run_callback_server(auth_url: str, config: Config, port: int, expected_stat
 def cmd_auth_status(args, config, token_mgr):
     """Show token status for active profile."""
     tokens = token_mgr.load()
+    info = _build_token_status(config, tokens)
+    output(info, getattr(args, "output", None) or args.format)
+
+
+def _build_token_status(config: Config, tokens: dict) -> dict:
+    """Compose the human-readable token status payload for a profile."""
     now = time.time()
     access_exp = tokens.get("expires_at", 0)
     refresh_exp = tokens.get("refresh_expires_at", 0)
-
-    info = {
+    return {
         "profile": config.profile,
         "sandbox": config.sandbox,
         "realm_id": tokens.get("realm_id"),
@@ -285,7 +299,6 @@ def cmd_auth_status(args, config, token_mgr):
         "refresh_token_remaining_days": max(0, round((refresh_exp - now) / 86400, 1)),
         "last_refreshed": time.ctime(tokens.get("refreshed_at", 0)),
     }
-    output(info, getattr(args, "output", None) or args.format)
 
 
 def cmd_auth_refresh(args, config, token_mgr):
