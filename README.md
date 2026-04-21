@@ -94,6 +94,20 @@ On headless servers, use manual mode:
 qbo auth init --manual
 ```
 
+## Official Intuit References
+
+- [Intuit Developer Prompt Library](https://github.com/IntuitDeveloper/Prompt-Library/)
+  — official Intuit prompt library for QuickBooks and related integration
+  workflows
+- [QuickBooks Online API Explorer](https://developer.intuit.com/app/developer/qbo/docs/get-started/get-started-with-the-api-explorer)
+  — entity and operation reference for the Accounting API
+- [Query operations and syntax](https://developer.intuit.com/app/developer/qbo/docs/learn/explore-the-quickbooks-online-api/data-queries)
+  — server-side query language rules used by `qbo query`
+- [Run reports](https://developer.intuit.com/app/developer/qbo/docs/workflows/run-reports)
+  — report endpoints, parameters, and response shape
+- [OAuth 2.0 setup](https://developer.intuit.com/app/developer/qbo/docs/develop/authentication-and-authorization/oauth-2.0)
+  — auth flow, scopes, and token lifecycle details
+
 ## Usage
 
 ### Check auth status
