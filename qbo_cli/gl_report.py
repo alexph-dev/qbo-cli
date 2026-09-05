@@ -317,12 +317,13 @@ def _print_account_tree(node: dict, indent: int = 0):
         _print_account_tree(child, indent + 1)
 
 
-def _resolve_customer(client: QBOClient, name: str) -> tuple[str, str]:
-    """Resolve customer display name to (id, full_name)."""
+def _resolve_customer(client: QBOClient, name: str) -> tuple[str, str, str]:
+    """Resolve customer display name to (id, full_name, display_name)."""
     if name.isdigit():
         data = client.get("Customer", name)
         customer = data.get("Customer", data)
-        return name, customer.get("FullyQualifiedName", customer.get("DisplayName", name))
+        display_name = customer.get("DisplayName", name)
+        return name, customer.get("FullyQualifiedName", display_name), display_name
 
     # Exact then fuzzy
     safe_name = _qbo_escape(name)
@@ -342,9 +343,17 @@ def _resolve_customer(client: QBOClient, name: str) -> tuple[str, str]:
         err_print("Using first match.")
     for customer in customers:
         if customer.get("DisplayName", "").lower() == name.lower():
-            return customer["Id"], customer.get("FullyQualifiedName", customer["DisplayName"])
+            return (
+                customer["Id"],
+                customer.get("FullyQualifiedName", customer["DisplayName"]),
+                customer["DisplayName"],
+            )
     first_match = customers[0]
-    return first_match["Id"], first_match.get("FullyQualifiedName", first_match["DisplayName"])
+    return (
+        first_match["Id"],
+        first_match.get("FullyQualifiedName", first_match["DisplayName"]),
+        first_match["DisplayName"],
+    )
 
 
 def _compute_subtotal(section_idx: dict[str, GLSection], node: dict) -> tuple[float, int]:
@@ -609,6 +618,10 @@ def _fetch_gl_data(client: QBOClient, start_date: str, end_date: str, method: st
     if cust_id:
         params["customer"] = cust_id
     gl_data = client.report("GeneralLedger", params)
+    report_basis = gl_data.get("Header", {}).get("ReportBasis")
+    if not isinstance(report_basis, str) or report_basis.strip().casefold() != method.casefold():
+        returned_basis = repr(report_basis) if report_basis is not None else "missing"
+        die(f"QBO GeneralLedger basis validation failed: requested {method}, Header.ReportBasis was {returned_basis}.")
     for opt in gl_data.get("Header", {}).get("Option", []):
         if opt.get("Name") == "NoReportData" and opt.get("Value") == "true":
             die("No data found for the specified filters.")
@@ -646,9 +659,9 @@ def cmd_gl_report(args, config, token_mgr):
         return
 
     # Phase 3: resolve inputs (customer, dates, account tree, GL data).
-    cust_id, cust_name = (None, None)
+    cust_id, cust_name, cust_display_name = (None, None, None)
     if args.customer:
-        cust_id, cust_name = _resolve_customer(client, args.customer)
+        cust_id, cust_name, cust_display_name = _resolve_customer(client, args.customer)
 
     start_date, end_date, auto_start = _resolve_gl_date_window(args)
 
@@ -690,12 +703,17 @@ def cmd_gl_report(args, config, token_mgr):
             "start_date": display_start,
             "end_date": end_date,
             "method": args.method,
+            "report_basis": gl_data["Header"]["ReportBasis"].strip(),
+            "report_start_date": gl_data["Header"].get("StartPeriod"),
+            "report_end_date": gl_data["Header"].get("EndPeriod"),
+            "report_currency": gl_data["Header"].get("Currency"),
             "account": _serialize_section_tree(section_idx, account_tree),
             "total": total_amt,
         }
         if cust_name:
             report_data["customer"] = cust_name
             report_data["customer_id"] = cust_id
+            report_data["customer_display_name"] = cust_display_name
         output(report_data, out_mode)
         return
 

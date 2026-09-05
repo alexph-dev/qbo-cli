@@ -20,7 +20,7 @@ from qbo_cli.commands import (
     cmd_update,
     cmd_void,
 )
-from qbo_cli.gl_report import cmd_gl_report
+from qbo_cli.gl_report import _fetch_gl_data, cmd_gl_report
 from qbo_cli.report_registry import (
     _REPORT_ALIAS_MAP,
     REPORT_REGISTRY,
@@ -362,19 +362,37 @@ class TestCmdGlReport:
         output=None,
         format="text",
         customer=None,
+        method="Cash",
     ):
         client = MagicMock()
-        client.report = MagicMock(return_value={"Header": {"Option": []}, "Rows": {}})
+        client.report = MagicMock(
+            return_value={
+                "Header": {
+                    "Option": [],
+                    "ReportBasis": method,
+                    "StartPeriod": "2026-02-01",
+                    "EndPeriod": "2026-02-28",
+                    "Currency": "THB",
+                },
+                "Rows": {},
+            }
+        )
         args = TestCmdGlReport._make_gl_args(
             customer=customer,
             output=output,
             format=format,
+            method=method,
         )
 
         with ExitStack() as stack:
             stack.enter_context(patch("qbo_cli.cli_options.QBOClient", return_value=client))
             if customer is not None:
-                stack.enter_context(patch("qbo_cli.gl_report._resolve_customer", return_value=("104", "PM:R-CB1")))
+                stack.enter_context(
+                    patch(
+                        "qbo_cli.gl_report._resolve_customer",
+                        return_value=("104", "PM:R-CB1", "R-CB1"),
+                    )
+                )
             stack.enter_context(
                 patch(
                     "qbo_cli.gl_report._discover_account_tree",
@@ -461,8 +479,64 @@ class TestCmdGlReport:
             customer="R-CB1",
         )
         assert data["customer"] == "PM:R-CB1"
+        assert data["customer_display_name"] == "R-CB1"
         assert data["account"]["name"] == "PM Owner Funds"
         assert data["total"] == pytest.approx(123.45)
+        assert data["method"] == "Cash"
+        assert data["report_basis"] == "Cash"
+        assert data["report_start_date"] == "2026-02-01"
+        assert data["report_end_date"] == "2026-02-28"
+        assert data["report_currency"] == "THB"
+
+    def test_gl_report_accepts_matching_accrual_basis(self, fake_config, fake_token_mgr, capsys):
+        data = self._run_gl_report_json(
+            fake_config,
+            fake_token_mgr,
+            capsys,
+            output="json",
+            method="Accrual",
+        )
+
+        assert data["method"] == "Accrual"
+        assert data["report_basis"] == "Accrual"
+
+    @pytest.mark.parametrize("report_basis", [None, "Accrual"])
+    def test_gl_report_rejects_missing_or_mismatched_returned_basis(
+        self,
+        capsys,
+        report_basis,
+    ):
+        client = MagicMock()
+        header: dict[str, object] = {"Option": []}
+        if report_basis is not None:
+            header["ReportBasis"] = report_basis
+        client.report = MagicMock(return_value={"Header": header, "Rows": {}})
+
+        with pytest.raises(SystemExit):
+            _fetch_gl_data(client, "2026-02-01", "2026-02-28", "Cash", None)
+
+        error = capsys.readouterr().err
+        assert "requested Cash" in error
+        assert "ReportBasis" in error
+
+    def test_gl_report_validates_basis_before_no_data(self, capsys):
+        client = MagicMock()
+        client.report = MagicMock(
+            return_value={
+                "Header": {
+                    "ReportBasis": "Accrual",
+                    "Option": [{"Name": "NoReportData", "Value": "true"}],
+                },
+                "Rows": {},
+            }
+        )
+
+        with pytest.raises(SystemExit):
+            _fetch_gl_data(client, "2026-02-01", "2026-02-28", "Cash", None)
+
+        error = capsys.readouterr().err
+        assert "basis validation failed" in error
+        assert "No data found" not in error
 
     def test_gl_list_accounts_json_output_for_tree(self, fake_config, fake_token_mgr, capsys):
         data = self._run_gl_list_accounts_tree(
@@ -508,8 +582,15 @@ class TestCmdGlReport:
 
     def test_gl_report_rejects_global_tsv_flag(self, fake_config, fake_token_mgr, capsys):
         args = self._make_gl_args(output=None, format="tsv")
+        client = MagicMock()
+        client.report = MagicMock(
+            return_value={
+                "Header": {"Option": [], "ReportBasis": "Cash"},
+                "Rows": {},
+            }
+        )
         with (
-            patch("qbo_cli.cli_options.QBOClient", return_value=MagicMock()),
+            patch("qbo_cli.cli_options.QBOClient", return_value=client),
             patch(
                 "qbo_cli.gl_report._discover_account_tree",
                 return_value={"name": "PM Owner Funds", "id": "125", "children": []},

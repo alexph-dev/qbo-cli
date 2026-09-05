@@ -1,6 +1,7 @@
 {
   "Header": {
     "ReportName": "GeneralLedger",
+    "ReportBasis": "Cash",
     "Option": [
       {"Name": "AccountingMethod", "Value": "Cash"},
       {"Name": "NoReportData", "Value": "false"}
