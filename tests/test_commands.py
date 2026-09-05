@@ -20,7 +20,7 @@ from qbo_cli.commands import (
     cmd_update,
     cmd_void,
 )
-from qbo_cli.gl_report import _fetch_gl_data, cmd_gl_report
+from qbo_cli.gl_report import _fetch_gl_data, _resolve_customer, cmd_gl_report
 from qbo_cli.report_registry import (
     _REPORT_ALIAS_MAP,
     REPORT_REGISTRY,
@@ -487,6 +487,24 @@ class TestCmdGlReport:
         assert data["report_start_date"] == "2026-02-01"
         assert data["report_end_date"] == "2026-02-28"
         assert data["report_currency"] == "THB"
+
+    def test_customer_resolver_preserves_exact_display_name(self):
+        client = MagicMock()
+        client.query = MagicMock(
+            return_value=[
+                {
+                    "Id": "104",
+                    "DisplayName": "R-CB1",
+                    "FullyQualifiedName": "PM:R-CB1",
+                }
+            ]
+        )
+
+        assert _resolve_customer(client, "R-CB1") == (
+            "104",
+            "PM:R-CB1",
+            "R-CB1",
+        )
 
     def test_gl_report_accepts_matching_accrual_basis(self, fake_config, fake_token_mgr, capsys):
         data = self._run_gl_report_json(
