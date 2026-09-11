@@ -312,6 +312,8 @@ Config file: `~/.qbo/config.json` (profiled format, see config.json.example)
 
 Token storage: `~/.qbo/tokens.{profile}.json` (per-profile, created automatically, chmod 600)
 
+Historical implementation records remain available in Git history; this README, the changelog, and the architecture map are the current references.
+
 ## Token Management
 
 - **Access tokens** expire every 60 minutes. The CLI refreshes them automatically before each request.
