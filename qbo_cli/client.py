@@ -18,7 +18,10 @@ from qbo_cli.constants import (
 )
 from qbo_cli.errors import die, err_print
 
-_PAGINATION_HINT = re.compile(r"\b(?:MAXRESULTS|STARTPOSITION)\b", re.IGNORECASE)
+_PAGINATION_HINT = re.compile(
+    r"'(?:[^'\\]|\\.|'')*'|\b(?P<pagination>MAXRESULTS|STARTPOSITION)\b",
+    re.IGNORECASE,
+)
 
 
 def _extract_entities(data: dict) -> list:
@@ -111,8 +114,8 @@ class QBOClient:
 
     def query(self, sql: str, max_pages: int = DEFAULT_MAX_PAGES) -> list:
         """Run QBO query with auto-pagination."""
-        # Honor explicit pagination hints; skip auto-paging.
-        if _PAGINATION_HINT.search(sql):
+        # Consume literals first so their contents cannot disable auto-pagination.
+        if any(match.group("pagination") for match in _PAGINATION_HINT.finditer(sql)):
             data = self.request("GET", "query", params={"query": sql})
             return _extract_entities(data)
 

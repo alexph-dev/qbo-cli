@@ -19,38 +19,68 @@ class TestQueryPagination:
         assert len(results) == 5
         assert mock_client.request.call_count == 1
 
-    def test_multi_page_with_correct_startposition(self, mock_client):
-        """Exactly MAX_RESULTS on page 1 → fetches page 2 with STARTPOSITION 1001."""
-        page1 = {"QueryResponse": {"Customer": [{"Id": str(i)} for i in range(1000)]}}
-        page2 = {"QueryResponse": {"Customer": [{"Id": "extra"}]}}
-        mock_client.request.side_effect = [page1, page2]
-        results = mock_client.query("SELECT * FROM Customer")
-        assert len(results) == 1001
-        assert mock_client.request.call_count == 2
+    @pytest.mark.parametrize(
+        "literal",
+        [
+            "'ordinary'",
+            "'MAXRESULTS'",
+            "'STARTPOSITION'",
+            "'maxresults 1 startposition 5'",
+            "'Owner''s MAXRESULTS'",
+            r"'Owner\'s STARTPOSITION'",
+            r"'folder\\MAXRESULTS'",
+            "'MAXRESULTS' AND CompanyName = 'STARTPOSITION'",
+        ],
+    )
+    @pytest.mark.parametrize("tail_size", [0, 1])
+    def test_multi_page_with_correct_startposition(
+        self, fake_config, fake_token_mgr, literal: str, tail_size: int
+    ) -> None:
+        """Return every row once, including with keywords inside escaped literals."""
+        client = QBOClient(fake_config, fake_token_mgr)
+        first_page = [{"Id": str(i)} for i in range(1000)]
+        tail = [{"Id": "extra"}] if tail_size else []
+        responses = []
+        for page in [first_page, tail]:
+            response = MagicMock(status_code=200, ok=True)
+            response.json.return_value = {"QueryResponse": {"Customer": page}}
+            responses.append(response)
+        sql = f"SELECT * FROM Customer WHERE DisplayName = {literal}"
 
-        # Verify second call uses correct STARTPOSITION
-        second_call_params = mock_client.request.call_args_list[1][1]["params"]
-        assert "STARTPOSITION 1001" in second_call_params["query"]
-        assert "MAXRESULTS 1000" in second_call_params["query"]
+        with patch("qbo_cli.client.requests.request", side_effect=responses) as http:
+            results = client.query(sql)
 
-    def test_user_maxresults_bypass(self, mock_client):
-        """User specifies MAXRESULTS → skip auto-pagination, forward exact SQL."""
-        mock_client.request.return_value = {"QueryResponse": {"Customer": [{"Id": "1"}]}}
-        results = mock_client.query("SELECT * FROM Customer MAXRESULTS 1")
-        assert len(results) == 1
-        # Verify exact SQL was forwarded without modification
-        actual_query = mock_client.request.call_args[1]["params"]["query"]
-        assert actual_query == "SELECT * FROM Customer MAXRESULTS 1"
-        assert "STARTPOSITION" not in actual_query
+        assert results == first_page + tail
+        assert [call.kwargs["params"]["query"] for call in http.call_args_list] == [
+            f"{sql} STARTPOSITION 1 MAXRESULTS 1000",
+            f"{sql} STARTPOSITION 1001 MAXRESULTS 1000",
+        ]
 
-    def test_user_startposition_bypass(self, mock_client):
-        """User specifies STARTPOSITION → skip auto-pagination."""
-        mock_client.request.return_value = {"QueryResponse": {"Customer": [{"Id": "1"}, {"Id": "2"}]}}
-        results = mock_client.query("SELECT * FROM Customer STARTPOSITION 5")
-        assert len(results) == 2
-        assert mock_client.request.call_count == 1
-        actual_query = mock_client.request.call_args[1]["params"]["query"]
-        assert actual_query == "SELECT * FROM Customer STARTPOSITION 5"
+    @pytest.mark.parametrize(
+        "sql",
+        [
+            "SELECT * FROM Customer MAXRESULTS 1",
+            "SELECT * FROM Customer STARTPOSITION 5",
+            "SELECT * FROM Customer startposition 5 maxresults 1000",
+            "SELECT * FROM Customer WHERE DisplayName = 'MAXRESULTS' MAXRESULTS 1000",
+            r"SELECT * FROM Customer WHERE DisplayName = 'Owner\'s' STARTPOSITION 5",
+            r"SELECT * FROM Customer WHERE DisplayName = 'folder\\' MAXRESULTS 1000",
+            "SELECT * FROM Customer WHERE DisplayName = 'Owner''s' STARTPOSITION 5",
+        ],
+    )
+    def test_explicit_pagination_preserves_range(self, fake_config, fake_token_mgr, sql: str) -> None:
+        """Forward the caller's exact range once, even when the response is full."""
+        client = QBOClient(fake_config, fake_token_mgr)
+        rows = [{"Id": str(i)} for i in range(1000)]
+        response = MagicMock(status_code=200, ok=True)
+        response.json.return_value = {"QueryResponse": {"Customer": rows}}
+
+        with patch("qbo_cli.client.requests.request", return_value=response) as http:
+            results = client.query(sql)
+
+        assert results == rows
+        assert http.call_count == 1
+        assert http.call_args.kwargs["params"]["query"] == sql
 
 
 # ─── 401 retry ────────────────────────────────────────────────────────────────
